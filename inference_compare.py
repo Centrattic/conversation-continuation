@@ -6,7 +6,6 @@ from typing import List
 from tqdm import tqdm
 from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER
 
-# --- Config ---
 base_model_name = f"{MODEL_NAME}"
 adapter_path = f"./{RESULTS_FOLDER}"
 test_file = "test.json"
@@ -37,7 +36,7 @@ def generate(model, prompt:str, tokenizer, max_new_tokens=max_new_tokens):
     return tokenizer.decode(outputs[0], skip_special_tokens=True).replace(prompt, "").strip()
 
 print(f"\nComparing on {n_samples} samples:\n")
-# Eventually save to file
+# eventually save to file
 
 for i in tqdm(range(min(n_samples, len(test_data)))):
     sample = test_data[i]

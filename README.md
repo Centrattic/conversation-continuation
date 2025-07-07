@@ -15,6 +15,7 @@ Ok. We're going with PEFT to start. Things to consider?
 * tokenizer is super important here. I should have a token for the person who's speaking (either Riya or Friend) at start of each turn. Maybe I should finetune the tokenizer too?
 * i'm not planning to include time in the prompt right now - don't know if I have enough data to get good at this?
 * what is architecture for the PEFT? Probably LoRA, I want attention still or something, though tbh even just very generalized bigram learning would be interesting (but getting it to be so general requires more than 1 attention layer)
+* Adding special tokens actually appears to be a problem, since not seen tokens -- connectes with other rare tokens, so we get much more OOD outputs. So we will keep [RIYA] and [FRIEND] format, just not use special tokens (add them as new). Only good to add new if I am finetuning very long... Also, adding [RIYA] as special token but not [FRIEND] means model really only outputs [FRIEND] response (this is before much training btw) since [RIYA] token is now very rare and not been seen before -- interesting behavior, maybe useful for making the single-person simulator, but then doesn't actually use the [RIYA] responses...
 
 ex. training sample
 [RIYA] hey are we still going tonight?  
@@ -30,6 +31,12 @@ Output: Friend's reply
 2. Autocomplete myself
 [RIYA] so I was thinking maybe we\n[RIYA]
 Output: Your next message
+
+### Running list of bugs to figure out/things to do
+* ```completion = decoded[len(prompt_text)-2:].strip() # why -2 idk`` Why do I need -2 here?
+* Why, on different training runs, are the same prompts selected by random.choice for sample generation callback? Does random choice go through the same order or smt?
+* Figure out how to handle creating new log file, but have a flag for continuing trianing or something if you cancel it that allows you to append to old logs. For now, assume no continuation.
+* Save outputs form inference_compare to file for nice view - maybe view in dashboard or smt
 
 ## Future Ideas
 

@@ -1,16 +1,30 @@
-from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer
+from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer, BitsAndBytesConfig
 from peft import get_peft_model, LoraConfig, TaskType
 from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER
 from datasets import load_dataset, DatasetDict
+from callbacks import SampleGenerationCallback, LiveJSONLogger
 import json
+import torch
+
+print("Torch available: ", torch.cuda.is_available())
+assert(torch.cuda.is_available())
+torch.cuda.empty_cache()
+torch.cuda.ipc_collect() # in case restart training
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_use_double_quant=True,
+)
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-special_tokens = {"additional_special_tokens": ["[RIYA]", f"[FRIEND_NAME]"]}
-tokenizer.add_special_tokens(special_tokens)
+# special_tokens = {"additional_special_tokens": ["[RIYA]", f"[{FRIEND_NAME}]"]}
+# tokenizer.add_special_tokens(special_tokens)
 tokenizer.pad_token = tokenizer.eos_token
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", load_in_4bit=True)
-model.resize_token_embeddings(len(tokenizer))
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", quantization_config=bnb_config)
+# model.resize_token_embeddings(len(tokenizer))
 
 lora_config = LoraConfig(
     r=8,
@@ -42,14 +56,15 @@ tokenized_dataset = dataset.map(tokenize, remove_columns = ["prompt", "response"
 
 training_args = TrainingArguments(
     output_dir=f"./{RESULTS_FOLDER}",
-    per_device_train_batch_size=2,          
+    per_device_train_batch_size=4,          
     num_train_epochs=3,
     learning_rate=2e-4,
-    fp16=True,                              
-    logging_steps=10,
-    save_strategy="epoch",
-    evaluation_strategy="epoch",
-    logging_dir="./logs",
+    fp16=False,                             
+    logging_steps=50, # calls log callback on log
+    save_strategy="steps",
+    save_steps=1000,
+    save_total_limit=3,  # optionally keep only last 2 checkpoints - yes, dont waste too much space
+    # logging_dir=f"./{RESULTS_FOLDER}/logs",
     report_to="none",                       
 )
 
@@ -61,6 +76,10 @@ trainer = Trainer(
     train_dataset=tokenized_dataset["train"],
     eval_dataset=tokenized_dataset["test"],
     data_collator=data_collator,
+    callbacks=[
+        SampleGenerationCallback(tokenizer, log_path = f"{RESULTS_FOLDER}/mid_completions.json", test_data_path = "test.json", every_n_steps=200),
+        LiveJSONLogger(log_path=f"{RESULTS_FOLDER}/log.json")
+    ],
 )
 
 trainer.train()

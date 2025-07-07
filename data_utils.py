@@ -24,7 +24,7 @@ def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: i
             if gap > max_gap_minutes:
                 buffer = []  # reset context due to large gap
 
-        speaker = "[RIYA]" if current["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+        speaker = "[Riya]" if current["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
         buffer.append(f"{speaker} {current['Content'].strip()}")
 
         if len(buffer) >= context_window + 1: # +1 for the response
@@ -45,22 +45,17 @@ def train_test_split(conversations: List[Dict], train_ratio=0.9, seed=42):
     test_data = conversations[split_idx:]
     return train_data, test_data
 
+def save_json(data: List[Dict], path: str):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 if __name__=="__main__":
 
     data = load_and_prepare_data("friend_hist.csv")
 
-    with open("data.json", "w") as f:
-        for d in data:
-            f.write(json.dumps(d) + "\n")
-
     train_data, test_data = train_test_split(data, train_ratio=0.9)
 
-    with open("train.json", "w") as f:
-        for row in train_data:
-            f.write(json.dumps(row) + "\n")
+    save_json(train_data, "train.json")
+    save_json(test_data, "test.json")
 
-    with open("test.json", "w") as f:
-        for row in test_data:
-            f.write(json.dumps(row) + "\n")
 

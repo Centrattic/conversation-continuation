@@ -1,6 +1,6 @@
-from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer
 from peft import get_peft_model, LoraConfig, TaskType
-from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER
+from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from datasets import load_dataset, DatasetDict
 from callbacks import SampleGenerationCallback, LiveJSONLogger
 import json
@@ -10,13 +10,6 @@ print("Torch available: ", torch.cuda.is_available())
 assert(torch.cuda.is_available())
 torch.cuda.empty_cache()
 torch.cuda.ipc_collect() # in case restart training
-
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.float16,
-    bnb_4bit_use_double_quant=True,
-)
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 # special_tokens = {"additional_special_tokens": ["[RIYA]", f"[{FRIEND_NAME}]"]}
@@ -38,7 +31,7 @@ model = get_peft_model(model, lora_config)
 
 dataset = DatasetDict({
     "train": load_dataset("json", data_files="train.json", split="train"),
-    "test": load_dataset("json", data_files="test.json", split="train"),
+    "test": load_dataset("json", data_files="test.json", split="train"), # only train split in test
 })
 
 # tokenize data

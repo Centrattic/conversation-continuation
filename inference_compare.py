@@ -4,7 +4,7 @@ from peft import PeftModel
 from datasets import load_dataset, DatasetDict
 from typing import List
 from tqdm import tqdm
-from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER
+from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 
 base_model_name = f"{MODEL_NAME}"
 adapter_path = f"./{RESULTS_FOLDER}"
@@ -16,11 +16,11 @@ tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
 print("Loading models")
-base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="auto", load_in_4bit=True)
+base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="auto", bnb_config=bnb_config)
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
-test_data = DatasetDict({"test":load_dataset("json", data_files={"test": test_file})})["test"]
+test_data = DatasetDict({"test": load_dataset("json", data_files="test.json", split="train")})["test"]
 
 @torch.no_grad()
 def generate(model, prompt:str, tokenizer, max_new_tokens=max_new_tokens):

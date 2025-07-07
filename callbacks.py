@@ -1,8 +1,9 @@
-from transformers import TrainerCallback
+from transformers.trainer_callback import TrainerCallback
 import torch
 import json
 import os
 import random
+from model_utils import generate
 
 class SampleGenerationCallback(TrainerCallback):
     def __init__(self, tokenizer, log_path, test_data_path, every_n_steps=500, max_new_tokens=50):
@@ -19,20 +20,20 @@ class SampleGenerationCallback(TrainerCallback):
         with open(test_data_path, "r", encoding="utf-8") as f:
             self.samples = json.load(f)
 
-    def get_completion(self, model, prompt_text):
-        input_ids = self.tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            output = model.generate(
-                **input_ids,
-                max_new_tokens=self.max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=self.tokenizer.eos_token_id,
-            )
+    # def get_completion(self, model, prompt_text):
+    #     input_ids = self.tokenizer(prompt_text, return_tensors="pt").to(model.device)
+    #     with torch.no_grad():
+    #         output = model.generate(
+    #             **input_ids,
+    #             max_new_tokens=self.max_new_tokens,
+    #             do_sample=True,
+    #             temperature=0.7,
+    #             top_p=0.9,
+    #             pad_token_id=self.tokenizer.eos_token_id,
+    #         )
             
-        decoded = self.tokenizer.decode(output[0]) # skip_special_tokens=False
-        return decoded
+    #     decoded = self.tokenizer.decode(output[0]) # skip_special_tokens=False
+    #     return decoded
     
     def on_step_end(self, args, state, control, seed = 228,**kwargs):
         if state.global_step % self.every_n_steps == 0 and state.global_step > 0:
@@ -42,13 +43,13 @@ class SampleGenerationCallback(TrainerCallback):
             # somehow in diff training runs it's the same random choice ?? figure that out
             sample = random.choice(self.samples)
             prompt_new = sample["prompt"].strip()
-            decoded_new = self.get_completion(model, prompt_new)
-            completion_new = decoded_new[len(prompt_new)-2:].strip() # why -2 idk
+            decoded_new = generate(model, prompt_new, self.tokenizer, max_new_tokens=self.max_new_tokens)
+            completion_new = decoded_new
 
             # saving both a new prompt for fun, and a constant prompt to track progress over time
             prompt_const = self.samples[seed]["prompt"].strip()
-            decoded_const = self.get_completion(model, prompt_const)
-            completion_const = decoded_const[len(prompt_const)-2:].strip() 
+            decoded_const = generate(model, prompt_const, self.tokenizer, max_new_tokens=self.max_new_tokens)
+            completion_const = decoded_const # decoded_const[len(prompt_const)-2:].strip() why -2 idk, shouldnt need now
             
             # print(f"\n[STEP {state.global_step}] Sample Completion:\n{decoded}\n" + "-"*50)
 

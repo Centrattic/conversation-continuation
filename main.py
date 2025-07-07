@@ -1,4 +1,8 @@
-from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.training_args import TrainingArguments
+from transformers.trainer import Trainer
+from transformers.data.data_collator import DataCollatorForLanguageModeling
+
 from peft import get_peft_model, LoraConfig, TaskType
 from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from datasets import load_dataset, DatasetDict

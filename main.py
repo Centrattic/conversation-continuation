@@ -62,8 +62,8 @@ training_args = TrainingArguments(
     fp16=False,                             
     logging_steps=50, # calls log callback on log
     save_strategy="steps",
-    save_steps=1000,
-    save_total_limit=3,  # optionally keep only last 2 checkpoints - yes, dont waste too much space
+    save_steps=1500,
+    # save_total_limit=3,  # optionally keep only last 2 checkpoints - yes, dont waste too much space
     # logging_dir=f"./{RESULTS_FOLDER}/logs",
     report_to="none",                       
 )

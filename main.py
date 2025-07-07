@@ -1,18 +1,15 @@
 from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling, AutoTokenizer
 from peft import get_peft_model, LoraConfig, TaskType
-from config import FRIEND_NAME
+from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER
 from datasets import load_dataset, DatasetDict
 import json
 
-model_name = "mistralai/Mistral-7B-v0.1"
-results_folder = "mistral-results"
-
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 special_tokens = {"additional_special_tokens": ["[RIYA]", f"[FRIEND_NAME]"]}
 tokenizer.add_special_tokens(special_tokens)
 tokenizer.pad_token = tokenizer.eos_token
 
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", load_in_4bit=True)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", load_in_4bit=True)
 model.resize_token_embeddings(len(tokenizer))
 
 lora_config = LoraConfig(
@@ -44,7 +41,7 @@ def tokenize(example):
 tokenized_dataset = dataset.map(tokenize, remove_columns = ["prompt", "response"])
 
 training_args = TrainingArguments(
-    output_dir=f"./{results_folder}",
+    output_dir=f"./{RESULTS_FOLDER}",
     per_device_train_batch_size=2,          
     num_train_epochs=3,
     learning_rate=2e-4,
@@ -68,6 +65,7 @@ trainer = Trainer(
 
 trainer.train()
 
-model.save_pretrained(f"{results_folder}/lora_adapter")
-tokenizer.save_pretrained(f"{results_folder}/lora_adapter")
+model.save_pretrained(f"{RESULTS_FOLDER}/lora_adapter")
+tokenizer.save_pretrained(f"{RESULTS_FOLDER}/lora_adapter")
+
 

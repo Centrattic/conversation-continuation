@@ -30,3 +30,11 @@ Output: Friend's reply
 2. Autocomplete myself
 [RIYA] so I was thinking maybe we\n[RIYA]
 Output: Your next message
+
+## Future Ideas
+
+So I somewhat fundamentally doubt this idea, because it relies on the assumption that predicting next token in conversation is equivalent to predicting the nuances of how someone acts. But the state space of next thing the person will talk about is huge, and requires like deeper understanding of someone's values? Also, there's a reason that character AI is still pretty bad/models are not great at simulating real people -- good character training requires some RL I think (?) and like reflection on values to ensure consistency in some way, and models will not be as consistent as humans without this.
+
+Ok, despite this, future ideas:
+* should check how my tokenizer is with emojis, ideally have a tokenizer with emojis/model trained on data including these
+* should consider whether or not to simulate one person instead of two (I think this is worse right now, because don't have person outside of this conversation history)

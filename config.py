@@ -1,7 +1,7 @@
 from transformers.utils.quantization_config import BitsAndBytesConfig
 import torch
 
-FRIEND_NAME = "Friend"
+FRIEND_NAME = "Owen"
 MODEL_NAME = "mistralai/Mistral-7B-v0.1"
 RESULTS_FOLDER = "mistral-results"
 

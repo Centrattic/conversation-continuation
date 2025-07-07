@@ -1,12 +1,8 @@
 # This file will enable continuous sampling to talk to Friend only, filtering out [RIYA] tags
 # Add more nuanced sampling (topk?)
 
-import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
-from datasets import load_dataset, DatasetDict
-from typing import List
-from tqdm import tqdm
 from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from model_utils import generate
 
@@ -67,7 +63,7 @@ while(1):
     riya_out = generate(lora_model, "".join(history), tokenizer)
     riya_out = riya_out.replace("<s>", "").strip()
 
-    index_riya = riya_out.find("[{FRIEND_NAME[0]}]") # assuming friend token split [first letter for now, should have more nuance later
+    index_riya = riya_out.find("[{FRIEND_NAME[0]}") # assuming friend token split [first letter for now, should have more nuance later
     riya_out = riya_out[:index_riya]
     
     riya_text = f"[Riya]: {riya_out}"

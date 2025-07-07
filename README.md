@@ -39,6 +39,7 @@ Output: Your next message
 * Figure out how to handle creating new log file, but have a flag for continuing trianing or something if you cancel it that allows you to append to old logs. For now, assume no continuation.
 * Save outputs form inference_compare to file for nice view - maybe view in dashboard or smt
 * Sometimes even the base model predicts exact text - clearly some bug here. Hmm but new sampling is good ig. You should compare base model and LORA here.
+* It's so interesting that looped_convo.txt loops so exactly, like the conversation literally repeats itself - it must be distributions converging or something -- I should visualize logit dists. And figure out how important init dist it
 
 ## 
 
@@ -50,7 +51,9 @@ Ok, despite this, future ideas:
 * should check how my tokenizer is with emojis, ideally have a tokenizer with emojis/model trained on data including these
 * should consider whether or not to simulate one person instead of two (I think this is worse right now, because don't have person outside of this conversation history)
 * try to do some character training by constitutional AI. Maybe can also incorporate world model here (like model of what life looks like and stuff), since world modeling is hard and model is still bad at it (though maybe got better at class schedule prompt over training runs?)
+* Tbh having a good world model, or human model here, would be so ideal. The model is just bad at knowing what a human thinks like/cares about - somehow must find a way to imbue this
 * Apply a weightage in training to more recent data
+
 
 ### Versions
 

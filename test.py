@@ -2,6 +2,7 @@
 
 import json
 from datasets import load_dataset, DatasetDict, Dataset
+import pandas as pd
 
 # with open("test.json", "r", encoding="utf-8") as f:
 #     data = json.load(f)
@@ -12,5 +13,10 @@ from datasets import load_dataset, DatasetDict, Dataset
 #         print(i)
 
 
-test_ds = load_dataset("json", data_files="test.json", split="train")
-print(test_ds)
+# test_ds = load_dataset("json", data_files="test.json", split="train")
+# print(test_ds)
+
+data = pd.read_csv("friend_hist.csv")
+data = data[["Author", "Content"]]
+
+data.to_csv("key_text_info.csv")

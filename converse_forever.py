@@ -1,4 +1,4 @@
-# This file will enable continuous sampling to talk to Friend only, filtering out [RIYA] tags
+# This file will enable continus sampling to talk to Friend only, filtering out [RIYA] tags
 # Add more nuanced sampling (topk?)
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -19,7 +19,7 @@ base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="a
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
-riya_out = f"hi {FRIEND_NAME}"
+riya_out = f"hey {FRIEND_NAME}, what are your thoughts on rust programming"
 history = [] # conversation starter
 hist_count = 0 # up to 8 since thats curr length
 full_history = []
@@ -52,14 +52,15 @@ while(1):
         index_friend = friend_out.find("[R")
     friend_out = friend_out[:index_friend]
     friend_out = friend_out.replace("<s>", "").strip()
-    history.append(friend_out) # lora_out shouldn't have friend name
-    hist_count +=1
-
+    
     friend_text = f"[{FRIEND_NAME}]: {friend_out}"
     print(friend_text)
     full_history.extend(["\n", friend_text])
 
-    prompt_riya = f"\n[{FRIEND_NAME}]: {friend_out} \n [Riya]"
+    prompt_riya = f"{friend_out} \n [Riya]"
+    history.append(prompt_riya) # lora_out shouldn't have friend name
+    hist_count +=1
+
     riya_out = generate(lora_model, "".join(history), tokenizer)
     riya_out = riya_out.replace("<s>", "").strip()
 

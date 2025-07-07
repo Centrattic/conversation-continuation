@@ -57,8 +57,10 @@ Ok, despite this, future ideas:
 
 ### Versions
 
-Version 1: Just finetuning LORA on 12k convo history
+Version 1: Just finetuning LORA on 12k convo history, ~$12 to train in total
 
 OMG the finetuned is indeed MUCH better than the base model. Knows specifics and can simulate conversation. Has no memory though. I think I might do something based on the Geometry of Truth Paper -- could train a model on some of the data (need to see how much I have to label) to predict which statements we have said in the past are factual and can't change (ex. our age, or facts about our families). And then combining this truth database with a constitution and then THINKING HARD, could lead to more consistency.
 
 Then during conversation, could also use the trained fact model (or train activation probe if needed) to predict new truths and add to memory or smt.
+
+Thoughts: so when the forever_conversation just converges, what's usually happening is somewhere someone said something that we actually said in real life and now the likelihood of this is just super high (much higher than 0.5, the top p cutoff, and so this just gets said). Thoughts to prevent this hmmm? Not sure rn

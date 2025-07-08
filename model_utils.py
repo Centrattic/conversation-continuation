@@ -8,8 +8,8 @@ def generate(model, prompt:str, tokenizer, max_new_tokens=50):
         max_new_tokens=max_new_tokens,
         do_sample=True,
         temperature=0.8, # higher temp avoids you getting stuck with the fish
-        top_p=0, # how much of probability dist overall you want to account for, min set
-        top_k=100,
+        top_p=0.95, # how much of probability dist overall you want to account for, min set
+        top_k=0,
         pad_token_id=tokenizer.eos_token_id,
     )
     # can i random seed somewhere to get same completion?

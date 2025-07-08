@@ -8,7 +8,7 @@ from model_utils import generate
 
 base_model_name = f"{MODEL_NAME}"
 adapter_path = f"./{RESULTS_FOLDER}/lora_adapter"
-max_new_tokens = 70
+max_new_tokens = 40
 save_path = "looped_convo.txt"
 
 tokenizer = AutoTokenizer.from_pretrained(base_model_name)
@@ -19,7 +19,7 @@ base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="a
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
-riya_out = f"hey {FRIEND_NAME}, what are your thoughts on rust programming"
+riya_out = f"hey {FRIEND_NAME}, let's write a poem!"
 history = [] # conversation starter
 hist_count = 0 # up to 8 since thats curr length
 full_history = []

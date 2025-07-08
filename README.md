@@ -53,18 +53,19 @@ Then during conversation, could also use the trained fact model (or train activa
 
 Thoughts: so when the forever_conversation just converges, what's usually happening is somewhere someone said something that we actually said in real life and now the likelihood of this is just super high (much higher than 0.5, the top p cutoff, and so this just gets said). Thoughts to prevent this hmmm? Not sure rn
 
-
 ## Running to-do list/bug fix list
 * ```completion = decoded[len(prompt_text)-2:].strip() # why -2 idk`` Why do I need -2 here?
 * Why, on different training runs, are the same prompts selected by random.choice for sample generation callback? Does random choice go through the same order or smt?
 * Figure out how to handle creating new log file, but have a flag for continuing trianing or something if you cancel it that allows you to append to old logs. For now, assume no continuation.
 * Save outputs form inference_compare to file for nice view - maybe view in dashboard or smt
 * Sometimes even the base model predicts exact text - clearly some bug here. Hmm but new sampling is good ig. You should compare base model and LORA here.
-* It's so interesting that looped_convo.txt loops so exactly, like the conversation literally repeats itself - it must be distributions converging or something -- I should visualize logit dists. And figure out how important init dist it
+* It's so interesting that looped_convo.txt loops so exactly, like the conversation literally repeats itself - it must be distributions converging or something -- I should visualize logit dists. And figure out how important init dist it.
+* Compare conversation looping by choosing next set of statements from one person, vs just. sampling for large number of tokens.
 * should check how my tokenizer is with emojis, ideally have a tokenizer with emojis/model trained on data including these
 * should consider whether or not to simulate one person instead of two (I think this is worse right now, because don't have person outside of this conversation history)
 * Apply a weightage in training to more recent data
 * Tbh having a good world model, or human model here, would be so ideal. The model is just bad at knowing what a human thinks like/cares about - somehow must find a way to imbue this
+* Some weird thing: sample_riya recognizes the actual friend name when searching lora_out string but not FRIEND_NAME??? weird
 
 ## Future Ideas
 
@@ -74,3 +75,4 @@ Ok, despite this, future ideas:
 1. Build a classifier for truth + a memory system to store learned truth -- perhaps store them in the constitution and reflect on them during RL? But also want to consider truth the model makes up, in order to be consistent with past interactions -- could store in a context file or find some other way (like every so often, train a lora on those truths, or RL more, or tbh a new method in the middle of these two would be cool?)
 2. Try to do some character training by constitutional AI. Maybe can also incorporate world model here (like model of what life looks like and stuff), since world modeling is hard and model is still bad at it (though maybe got better at class schedule prompt over training runs?)
 3. A cool way to check how well your truth-building/world-modeling is going: follow-ups to the Geometry of Truth works, ie. particularly focusing on truth: (1) The Geometry of Truth: Emergent Linear Structure in Large Language Model Representations of True/False Datasets and (2) How well do truth probes generalise? by seeing if truth probes generalize better or something on the RL-ed or Memory added model
+4. Can I direct the convo in some meaningful way by providing a topic -- like maybe very mild steering vector to talk about some particular topic, would be cool?

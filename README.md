@@ -5,7 +5,7 @@ Goal: simulate conversations between you/other person. End up with model that ca
 
 ## General Details
 
-### ex. training sample
+### ex. training sample (# messages in context is tunable)
 [RIYA] hey are we still going tonight?  
 [FRIEND] yeah! want to meet at 7?  
 [RIYA] sounds perfect, see you then :)  
@@ -46,6 +46,7 @@ Ok. We're going with PEFT to start. Things to consider?
 * what is architecture for the PEFT? Probably LoRA, I want attention still or something, though tbh even just very generalized bigram learning would be interesting (but getting it to be so general requires more than 1 attention layer)
 * Adding special tokens actually appears to be a problem, since not seen tokens -- connectes with other rare tokens, so we get much more OOD outputs. So we will keep [RIYA] and [FRIEND] format, just not use special tokens (add them as new). Only good to add new if I am finetuning very long... Also, adding [RIYA] as special token but not [FRIEND] means model really only outputs [FRIEND] response (this is before much training btw) since [RIYA] token is now very rare and not been seen before -- interesting behavior, maybe useful for making the single-person simulator, but then doesn't actually use the [RIYA] responses...
 * In sample new, figure out how to sample until reasonable end token and not just cut off with max token. Ig it already does this by choosing when to use [Riya] token, so setting large max token is the fix.
+* why [RIYA] and [FRIEND] tags work. Because even one composition of attention layers is really good at finding trigrams, so referencing back to these tags. Ideal if they are one token maybe but doesn't matter, training with special new token seems maybe bad, or maybe better at triggering in distribution -- yeah but much worse at being unique possibly right, like connecting special token to words in convo, but then again these tokens [R dont have strong attention to other tokens (are rare anyway, so connected to other special token)
 
 So... training done. OMG the finetuned is indeed MUCH better than the base model. Knows specifics and can simulate conversation. Has no memory though. I think I might do something based on the Geometry of Truth Paper -- could train a model on some of the data (need to see how much I have to label) to predict which statements we have said in the past are factual and can't change (ex. our age, or facts about our families). And then combining this truth database with a constitution and then THINKING HARD, could lead to more consistency.
 
@@ -64,8 +65,10 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * should check how my tokenizer is with emojis, ideally have a tokenizer with emojis/model trained on data including these
 * should consider whether or not to simulate one person instead of two (I think this is worse right now, because don't have person outside of this conversation history)
 * Apply a weightage in training to more recent data
-* Tbh having a good world model, or human model here, would be so ideal. The model is just bad at knowing what a human thinks like/cares about - somehow must find a way to imbue this
+* Tbh having a good world model, or human model here, would be so ideal. The model is just bad at knowing what a human thinks like/cares about - somehow must find a way to imbue this. And also needs this for different humans. I think the play is constitutional AI - like a consitution for every human the model must recognize how to talk about. And then it does seem deepthink on the constitution before simulating that person. So for good simulated conversations I need a good constitution for both Friend and Me.
 * Some weird thing: sample_riya recognizes the actual friend name when searching lora_out string but not FRIEND_NAME??? weird
+* should I be doing some sort of normalization??
+* figure out how to fix sampling degradation issue. is good at start of sampling but bad later, maybe should reset history? or like p-annealing? think about this
 
 ## Future Ideas
 
@@ -76,3 +79,6 @@ Ok, despite this, future ideas:
 2. Try to do some character training by constitutional AI. Maybe can also incorporate world model here (like model of what life looks like and stuff), since world modeling is hard and model is still bad at it (though maybe got better at class schedule prompt over training runs?)
 3. A cool way to check how well your truth-building/world-modeling is going: follow-ups to the Geometry of Truth works, ie. particularly focusing on truth: (1) The Geometry of Truth: Emergent Linear Structure in Large Language Model Representations of True/False Datasets and (2) How well do truth probes generalise? by seeing if truth probes generalize better or something on the RL-ed or Memory added model
 4. Can I direct the convo in some meaningful way by providing a topic -- like maybe very mild steering vector to talk about some particular topic, would be cool?
+5. Another steering idea. First thing, maybe if I want to character train, I should simulate myself since I have the most data about myself (but this is kind of boring and less fun and i can always do this later if I have a good simulate other pipeline ig). But now imagine I simulate friend but don't train on much data outside of our conversation history -- and a mutual friend mentioned every so often wants to talk to friend. Then, what I can do is make a dataset from our real data, or simulated conversations where mutual friend is mentioned/discussed, the idea is that their values are somewhat modeled (or if I have a Consitution for friend + RL time, this instead is ideal), and then train a "mutual friend" probe on activations on that data. Then from that probe, I can get a direction for that "mutual friend" and steer in that direction.
+- my hypothesis: best for simulating person is Constitution + finetune text messages. second best is finetune for tone, Constitution for values
+- another idea: finetune base model on conversation history. Then RL for one actor or another for values? I can also extract server data so maybe more data about someone (should ofc get consent for any data extracted)

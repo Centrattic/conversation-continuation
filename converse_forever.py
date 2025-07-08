@@ -19,7 +19,7 @@ base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="a
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
-riya_out = f"hey {FRIEND_NAME}, let's write a poem!"
+riya_out = f"hey {FRIEND_NAME}, hiiii"
 history = [] # conversation starter
 hist_count = 0 # up to 8 since thats curr length
 full_history = []

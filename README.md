@@ -20,6 +20,10 @@ Output: Friend's reply
 [RIYA] so I was thinking maybe we\n[RIYA]
 Output: Your next message
 
+### To sample
+
+From the root directory (```conversation-continuation/```), run one of the sampling files as a module: ex. ```python -m src.sampling.sample_friend```. Make sure you're in root directory or the path to the LORA adapter will be unknown.
+
 ### Hyperparameters
 
 Sampling:
@@ -32,7 +36,19 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 
 ## Version Notes
 
-### Version 1: Just finetuning LORA on 12k convo history, ~$12 to train in total
+### Version 2: I'm adding TDA! (7/18/25)
+Ideas:
+* So first idea here is obviously influence functions
+* But wondering if there's another way easily to like do TDA! Oh!! One thought is I just take the activation vector on the current output (across the sequence) or last token or whatever (ideally I average across sequence) and then compare this to cached activation vectors (averaged across sequence again) for various input data samples for the final model! Then I just choose topk as most heavily attributed to 
+* Ok the second idea seems pretty intuitive and easy. Since this model isn't on TransformerLens (also eventually I want to do other activation based interp) and TransformerLens is also reallly bulky, could use BauKit easily or nnsight. Nnsight seems pretty good (also someone on OSMI made nninterp recently, could look at this?)
+* Ok but influence functions are the main method in field rn, so start with that. Can also try this second TDA idea tomorrow. 
+* influence function implementation following: https://www.lesswrong.com/posts/sYeZvofqbWJDrXEHM/influence-functions-why-what-and-how
+* another thing to look into is attribution patching: https://www.neelnanda.io/mechanistic-interpretability/attribution-patching, but maybe this simple cosine similarity activation idea is starting to look good 😭
+* Ok influence fucntions seem to give you influence of a given data point on the output logits -- ah, maybe that would be cool but harder to get back attributions from that without a lot of brunt work. Okay but it only needs to happen once. Implementing these would be really cool and fun :D I have been missing math a bit
+* Ok nvm influence functions are super expensive (backward pass atelast). Let's start simple with the activation extraction. Literally just requires one forward pass
+
+
+### Version 1: Just finetuning Mistral LORA on 12k convo history, ~$12 to train in total (7/6/25)
 
 Ideas: 
 1. some sort of diffusion option: too hard to get good I think? Not trying to train a general-purpose LLM
@@ -69,6 +85,8 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * Some weird thing: sample_riya recognizes the actual friend name when searching lora_out string but not FRIEND_NAME??? weird
 * should I be doing some sort of normalization??
 * figure out how to fix sampling degradation issue. is good at start of sampling but bad later, maybe should reset history? or like p-annealing? think about this
+* make it better at realziing i person who am talking is Riya or something, I should add riya as name maybe. Figure out pronouns and people this is really hard or something.
+* waitt do sub-directories need __init__.py. Didn't need it to run sampling file inside sampling dir.
 
 ## Future Ideas
 
@@ -77,6 +95,8 @@ So I somewhat fundamentally doubt this idea, because it relies on the assumption
 Ok, despite this, future ideas:
 1. Build a classifier for truth + a memory system to store learned truth -- perhaps store them in the constitution and reflect on them during RL? But also want to consider truth the model makes up, in order to be consistent with past interactions -- could store in a context file or find some other way (like every so often, train a lora on those truths, or RL more, or tbh a new method in the middle of these two would be cool?)
 2. Try to do some character training by constitutional AI. Maybe can also incorporate world model here (like model of what life looks like and stuff), since world modeling is hard and model is still bad at it (though maybe got better at class schedule prompt over training runs?)
+* need reasonign models here: https://huggingface.co/deepseek-ai/DeepSeek-R1-0528-Qwen3-8B, https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+* particularly something to handle in consittuion or memory or somethign is modeling other people we talk about, since often brings up random figures incorrectly. we can have model reason about who other people we've discussed are
 3. A cool way to check how well your truth-building/world-modeling is going: follow-ups to the Geometry of Truth works, ie. particularly focusing on truth: (1) The Geometry of Truth: Emergent Linear Structure in Large Language Model Representations of True/False Datasets and (2) How well do truth probes generalise? by seeing if truth probes generalize better or something on the RL-ed or Memory added model
 4. Can I direct the convo in some meaningful way by providing a topic -- like maybe very mild steering vector to talk about some particular topic, would be cool?
 5. Another steering idea. First thing, maybe if I want to character train, I should simulate myself since I have the most data about myself (but this is kind of boring and less fun and i can always do this later if I have a good simulate other pipeline ig). But now imagine I simulate friend but don't train on much data outside of our conversation history -- and a mutual friend mentioned every so often wants to talk to friend. Then, what I can do is make a dataset from our real data, or simulated conversations where mutual friend is mentioned/discussed, the idea is that their values are somewhat modeled (or if I have a Consitution for friend + RL time, this instead is ideal), and then train a "mutual friend" probe on activations on that data. Then from that probe, I can get a direction for that "mutual friend" and steer in that direction.

@@ -41,7 +41,7 @@ def generate_with_activations(model, prompt:str, tokenizer, max_new_tokens=50):
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-    )[0]
+    )
 
     # 5) remove hook
     h.remove()

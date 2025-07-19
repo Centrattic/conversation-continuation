@@ -9,7 +9,7 @@ from pathlib import Path
 import argparse
 from datetime import datetime
 
-from src.config import RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
+from src.config import FRIEND_ID, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
 from src.model_utils import generate, generate_with_activations
 from src.logger import ConversationLogger
 import json
@@ -80,7 +80,11 @@ while(1):
         d = json.load(open(mistral_cache_info))
         hidden_size, max_seq_len = d['hidden_size'], d['max_seq_len']
         
+        # ToDo: maybe refactor so I don't have to pass in an ActivationCache instance
         mistral_cache = FinalLayerActivationCache(hidden_size, max_seq_len)
-        top_train_samples = find_topk_train_samples(mistral_cache,mean_gen_acts, k=3)
+        top_train_samples, _ = find_topk_train_samples(mistral_cache, mean_gen_acts, k=1, author_id = str(FRIEND_ID))
+        # could use RiyaID to do TDA for the prompt (to figure out when before have i asked similar quesitons?)
 
-        logger.log_to_all(top_train_samples)
+        for i, entry in enumerate(top_train_samples):
+            # entry already has “Author MM-DD-YY-HH-MM-SS: content”
+            logger.log_to_all(f"{i}. {entry}", color='blue')

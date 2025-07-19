@@ -8,57 +8,85 @@ from typing import List, Dict, Sequence, Tuple
 
 import numpy as np
 import torch
+from datetime import datetime
 
-from src.config import FRIEND_ID, RIYA_ID, RESULTS_FOLDER
+from src.config import FRIEND_ID, FRIEND_NAME, RIYA_NAME, RIYA_ID, RESULTS_FOLDER
 
-# ToDo: Refactor so paths are consts in this utils file. 
-# Actually fine cause I can pass in an ActivationCache instance
 
-# ToDo: rewrite this method to run on cuda so faster loll
+# GPT method to fix datetime parsing. TBH i should just be able to save it better myself.
+def _parse_and_format_ts(ts: str) -> str:
+    # Trim fractional seconds to 6 digits for fromisoformat
+    if '+' in ts or '-' in ts[19:]:
+        # split out timezone part
+        for sep in ('+', '-'):
+            if sep in ts[19:]:
+                main, tz = ts.split(sep, 1)
+                tz = sep + tz
+                break
+    else:
+        main, tz = ts, ''
+    if '.' in main:
+        date, frac = main.split('.')
+        frac6 = (frac + '000000')[:6]
+        main6 = f"{date}.{frac6}"
+    else:
+        main6 = main
+    dt = datetime.fromisoformat(main6 + tz)
+    return dt.strftime("%m-%d-%y-%H-%M-%S")
+
+# ToDo: rewrite this method to run on cuda, so faster. Right now makes convo quite a bit slower.
 def find_topk_train_samples(
     cache,                        # A FinalLayerActivationCache instance
     mean_gen_acts: np.ndarray,    # (hidden_size,)
-    k: int
+    k: int,
+    author_id: str
 ) -> Tuple[List[str], List[str]]:
     """
     Returns:
       entries: ["{author} {timestamp}: {content}", ...] length k
       prompts: [content, ...] length k
     """
-    # Load all activations + hashes
-    N = cache.rows
-    acts   = cache._open_act(writable=False)            # (N, max_len, H)
-    hashes = np.memmap(cache.paths.hash, dtype=cache.HASH_DTYPE,
-                       mode="r", shape=(N,))
-    
-    if isinstance(mean_gen_acts, torch.Tensor):
-        mean_gen_acts = mean_gen_acts.detach().cpu().numpy().astype(np.float32)
-    else:
-        mean_gen_acts = mean_gen_acts.astype(np.float32)
-
-    # Mean-pool
-    # ToDo: try different aggregations
-    vecs  = acts.mean(axis=1).astype(np.float32)        # (N, H)
-    query = mean_gen_acts.astype(np.float32)            # (H,)
-
-    # Cosine sim
-    dots  = vecs @ query                                # (N,)
-    norms = np.linalg.norm(vecs, axis=1) * np.linalg.norm(query)
-    sims  = dots / (norms + 1e-12)
-
-    # Top-k
-    idxs = np.argsort(sims)[-k:][::-1]
-
     # Load reverse maps
-    author_map  = json.loads(cache.paths.author_map.read_text())      # {hash:author}
+    author_map = json.loads(cache.paths.author_map.read_text())      # {hash:author}
     content_map = json.loads(cache.paths.content_map.read_text())     # {hash:[ts,content]}
 
+    author_hashes = [h for h, a in author_map.items() if a == author_id]
+    if not author_hashes:
+        return [], []
+
+    rows = [cache._index[h] for h in author_hashes if h in cache._index]
+    if not rows:
+        return [], []
+
+    # Load all activations + hashes
+    acts = cache._open_act(writable=False)                      # (N, max_len, H)
+    all_hashes = np.memmap(cache.paths.hash, dtype=cache.HASH_DTYPE,
+                          mode="r", shape=(cache.rows,))
+
+    vecs = acts[rows].mean(axis=1).astype(np.float32)            # (M, H)
+    query = (
+        mean_gen_acts.detach().cpu().numpy().astype(np.float32)
+        if hasattr(mean_gen_acts, "detach")
+        else mean_gen_acts.astype(np.float32)
+    )
+
+    # ToDo: try different aggregations
+    dots = vecs @ query                                         # (M,)
+    norms = np.linalg.norm(vecs, axis=1) * np.linalg.norm(query)
+    sims = dots / (norms + 1e-12)
+
+    # Top-k
+    sub_idxs = np.argsort(sims)[-k:][::-1] # indices into vecs/rows
+    selected_rows = [rows[i] for i in sub_idxs]
+
     entries, prompts = [], []
-    for i in idxs:
-        h = hashes[i].decode()
-        author = author_map.get(h, "<unk>")
+    for r in selected_rows:
+        h = all_hashes[r].decode()
+        # cursed long line :p
+        author = FRIEND_NAME if author_id == str(FRIEND_ID) else RIYA_NAME if author_id == str(RIYA_ID) else "UNKNOWN"
         ts, content = content_map.get(h, ("<unk>", ""))
-        entries.append(f"{author} {ts}: {content}")
+        nice_ts = _parse_and_format_ts(ts)
+        entries.append(f"{author} {nice_ts}: {content}")
         prompts.append(content)
 
     return entries, prompts

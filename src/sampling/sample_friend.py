@@ -1,5 +1,6 @@
 # This file will enable continuous sampling to talk to Friend only, filtering out [RIYA] tags
 
+from decimal import ConversionSyntax
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
@@ -17,13 +18,18 @@ from src.activation_tda.tda_utils import find_topk_train_samples, FinalLayerActi
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tda', action='store_true')
+parser.add_argument('--save', action='store_true')
 
 args = parser.parse_args()
 enable_tda = args.tda
+save_convo = args.save
 
-curr_date = datetime.now().strftime("%m-%d-%y-%H-%M-%S")
-log_path = f"{CONVO_FOLDER}/sample-friend/{curr_date}.txt"
-logger = ConversationLogger(Path(log_path))
+if save_convo:
+    curr_date = datetime.now().strftime("%m-%d-%y-%H-%M-%S")
+    log_path = f"{CONVO_FOLDER}/sample-friend/{curr_date}.txt"
+    logger = ConversationLogger(Path(log_path))
+else:
+    logger = ConversationLogger() # logger outputs just print to console
 
 base_model_name = Path(f"{MODEL_NAME}")
 adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")
@@ -88,3 +94,5 @@ while(1):
         for i, entry in enumerate(top_train_samples):
             # entry already has “Author MM-DD-YY-HH-MM-SS: content”
             logger.log_to_all(f"{i}. {entry}", color='blue')
+
+logger.close()

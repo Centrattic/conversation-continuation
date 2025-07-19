@@ -3,7 +3,7 @@ import torch
 import json
 import os
 import random
-from model_utils import generate
+from src.model_utils import generate
 
 class SampleGenerationCallback(TrainerCallback):
     def __init__(self, tokenizer, log_path, test_data_path, every_n_steps=500, max_new_tokens=50):

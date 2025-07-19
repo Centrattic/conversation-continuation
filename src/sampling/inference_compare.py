@@ -4,12 +4,13 @@ from peft import PeftModel
 from datasets import load_dataset, DatasetDict
 from typing import List
 from tqdm import tqdm
+from pathlib import Path
+
 from src.config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from src.model_utils import generate
 
-base_model_name = f"{MODEL_NAME}"
-adapter_path = f"./{RESULTS_FOLDER}/lora_adapter"
-test_file = "test.json"
+base_model_name = Path(f"{MODEL_NAME}")
+adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")test_file = "test.json"
 max_new_tokens = 50
 n_samples = 10  # How many examples to evaluate
 

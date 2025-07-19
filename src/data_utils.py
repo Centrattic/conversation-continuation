@@ -2,7 +2,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict
 import json
-from config import FRIEND_NAME
+from src.config import FRIEND_NAME
 from tqdm import tqdm
 import random
 

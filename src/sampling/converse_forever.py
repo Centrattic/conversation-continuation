@@ -3,11 +3,13 @@
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
+from pathlib import Path
+
 from src.config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from src.model_utils import generate
 
-base_model_name = f"{MODEL_NAME}"
-adapter_path = f"./{RESULTS_FOLDER}/lora_adapter"
+base_model_name = Path(f"{MODEL_NAME}")
+adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")
 max_new_tokens = 40
 save_path = "looped_convo.txt"
 

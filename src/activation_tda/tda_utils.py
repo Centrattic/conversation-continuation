@@ -8,11 +8,41 @@ from typing import List, Dict, Sequence, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from datetime import datetime
 
 from src.config import FRIEND_ID, FRIEND_NAME, RIYA_NAME, RIYA_ID, RESULTS_FOLDER
 
+def aggregate_activations( # ToDo: is there a way to average across the top few?
+    acts: torch.Tensor,
+    method: str,
+    top_k: int = 10, # Success depends on whether magnitude of padding tokens is large 😭 idk should research this
+) -> torch.Tensor:
+    
+    if acts.ndim == 2:
+        acts = acts.unsqueeze(0)  # make it (1, seq_len, H)
+    
+    B, S, H = acts.shape
 
+    if method == "mean_top_k":  
+        norms = acts.norm(dim=2) # (B,S)
+        # get top_k indices (or all if seq_len < top_k)
+        k = min(top_k, S)
+        topk = norms.topk(k, dim=1).indices
+        batch_idxs = torch.arange(B, device=acts.device)[:, None]
+        selected = acts[batch_idxs, topk] # (B, K, H)
+        agg = selected.mean(dim=1) # (B, H)
+    elif method == "max":
+        agg = acts.max(dim=1).values
+    elif method == "last":
+        agg = acts[:, -1, :]
+    elif method == "mean":
+        agg = acts.mean(dim=1)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+    
+    return agg.squeeze(0) if B == 1 else agg
+    
 # GPT method to fix datetime parsing. TBH i should just be able to save it better myself.
 def _parse_and_format_ts(ts: str) -> str:
     # Trim fractional seconds to 6 digits for fromisoformat
@@ -34,12 +64,14 @@ def _parse_and_format_ts(ts: str) -> str:
     dt = datetime.fromisoformat(main6 + tz)
     return dt.strftime("%m-%d-%y-%H-%M-%S")
 
-# ToDo: rewrite this method to run on cuda, so faster. Right now makes convo quite a bit slower.
+# 
 def find_topk_train_samples(
     cache,                        # A FinalLayerActivationCache instance
-    mean_gen_acts: np.ndarray,    # (hidden_size,)
+    input_acts: np.ndarray,    # (hidden_size,)
     k: int,
-    author_id: str
+    author_id: str,
+    agg_method: str,
+    device: str = "cuda",
 ) -> Tuple[List[str], List[str]]:
     """
     Returns:
@@ -47,8 +79,8 @@ def find_topk_train_samples(
       prompts: [content, ...] length k
     """
     # Load reverse maps
-    author_map = json.loads(cache.paths.author_map.read_text())      # {hash:author}
-    content_map = json.loads(cache.paths.content_map.read_text())     # {hash:[ts,content]}
+    author_map = json.loads(cache.paths.author_map.read_text()) # {hash:author}
+    content_map = json.loads(cache.paths.content_map.read_text()) # {hash:[ts,content]}
 
     author_hashes = [h for h, a in author_map.items() if a == author_id]
     if not author_hashes:
@@ -59,34 +91,35 @@ def find_topk_train_samples(
         return [], []
 
     # Load all activations + hashes
-    acts = cache._open_act(writable=False)                      # (N, max_len, H)
-    all_hashes = np.memmap(cache.paths.hash, dtype=cache.HASH_DTYPE,
-                          mode="r", shape=(cache.rows,))
+    acts_mm = cache._open_act(writable=False)
+    subset_np = acts_mm[rows]
 
-    vecs = acts[rows].mean(axis=1).astype(np.float32)            # (M, H)
-    query = (
-        mean_gen_acts.detach().cpu().numpy().astype(np.float32)
-        if hasattr(mean_gen_acts, "detach")
-        else mean_gen_acts.astype(np.float32)
-    )
+    device = torch.device(device if torch.cuda.is_available() else "cpu")
+    acts_t = torch.from_numpy(subset_np).to(device)
 
-    # ToDo: try different aggregations
-    dots = vecs @ query                                         # (M,)
-    norms = np.linalg.norm(vecs, axis=1) * np.linalg.norm(query)
-    sims = dots / (norms + 1e-12)
+    vecs = aggregate_activations(acts_t, method=agg_method)
+    query = input_acts.to(device).float() if isinstance(input_acts, torch.Tensor) \
+            else torch.from_numpy(input_acts).to(device).float()
+
+    # Cosine similarity
+    sims = F.cosine_similarity(vecs, query.unsqueeze(0), dim=-1)
 
     # Top-k
-    sub_idxs = np.argsort(sims)[-k:][::-1] # indices into vecs/rows
-    selected_rows = [rows[i] for i in sub_idxs]
+    topk_vals, topk_idxs = sims.topk(k, largest=True)
+    selected_rows = [rows[i] for i in topk_idxs.cpu().tolist()]
 
+    hashes_mm = np.memmap(cache.paths.hash, dtype=cache.HASH_DTYPE,
+                         mode="r", shape=(cache.rows,))
     entries, prompts = [], []
     for r in selected_rows:
-        h = all_hashes[r].decode()
-        # cursed long line :p
-        author = FRIEND_NAME if author_id == str(FRIEND_ID) else RIYA_NAME if author_id == str(RIYA_ID) else "UNKNOWN"
+        h = hashes_mm[r].decode()
         ts, content = content_map.get(h, ("<unk>", ""))
-        nice_ts = _parse_and_format_ts(ts)
-        entries.append(f"{author} {nice_ts}: {content}")
+        # nice timestamp
+        dt = _parse_and_format_ts(ts)
+        # pretty author name
+        author = FRIEND_NAME if author_id == str(FRIEND_ID) \
+                 else RIYA_NAME if author_id == str(RIYA_ID) else "UNKNOWN"
+        entries.append(f"{author} {dt}: {content}")
         prompts.append(content)
 
     return entries, prompts

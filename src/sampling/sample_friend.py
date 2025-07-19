@@ -14,7 +14,7 @@ from src.config import FRIEND_ID, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FO
 from src.model_utils import generate, generate_with_activations
 from src.logger import ConversationLogger
 import json
-from src.activation_tda.tda_utils import find_topk_train_samples, FinalLayerActivationCache
+from src.activation_tda.tda_utils import find_topk_train_samples, FinalLayerActivationCache, aggregate_activations
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tda', action='store_true')
@@ -80,7 +80,9 @@ while(1):
     if enable_tda:
         sel_acts = acts[1:index] # a list
         gen_acts = torch.stack([a[0, -1, :] for a in sel_acts], dim=0) # (num_gen_tokens, hidden_size)
-        mean_gen_acts = gen_acts.mean(dim=0) # mean activation vector
+        
+        agg = "mean_top_k"
+        agg_gen_acts = aggregate_activations(gen_acts, agg) # mean activation vector
 
         mistral_cache_info = f"{RESULTS_FOLDER}/activation_cache/final.meta.json"
         d = json.load(open(mistral_cache_info))
@@ -88,11 +90,12 @@ while(1):
         
         # ToDo: maybe refactor so I don't have to pass in an ActivationCache instance
         mistral_cache = FinalLayerActivationCache(hidden_size, max_seq_len)
-        top_train_samples, _ = find_topk_train_samples(mistral_cache, mean_gen_acts, k=1, author_id = str(FRIEND_ID))
+        top_train_samples, _ = find_topk_train_samples(mistral_cache, agg_gen_acts, k=1, 
+                                                    author_id = str(FRIEND_ID), agg_method=agg)
         # could use RiyaID to do TDA for the prompt (to figure out when before have i asked similar quesitons?)
 
         for i, entry in enumerate(top_train_samples):
             # entry already has “Author MM-DD-YY-HH-MM-SS: content”
-            logger.log_to_all(f"{i}. {entry}", color='blue')
+            logger.log_to_all(f"{i+1}. {entry}", color='blue')
 
 logger.close()

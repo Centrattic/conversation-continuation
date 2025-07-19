@@ -1,0 +1,1 @@
+To add: PCA plot of conversations colored by person & groups of 6 months - have we changed over time?

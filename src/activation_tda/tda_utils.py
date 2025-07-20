@@ -16,7 +16,7 @@ from src.config import FRIEND_ID, FRIEND_NAME, RIYA_NAME, RIYA_ID, RESULTS_FOLDE
 def aggregate_activations( # ToDo: is there a way to average across the top few?
     acts: torch.Tensor,
     method: str,
-    top_k: int = 10, # Success depends on whether magnitude of padding tokens is large 😭 idk should research this
+    top_k: int = 15, # Success depends on whether magnitude of padding tokens is large 😭 idk should research this
 ) -> torch.Tensor:
     
     if acts.ndim == 2:
@@ -64,7 +64,7 @@ def _parse_and_format_ts(ts: str) -> str:
     dt = datetime.fromisoformat(main6 + tz)
     return dt.strftime("%m-%d-%y-%H-%M-%S")
 
-# 
+
 def find_topk_train_samples(
     cache,                        # A FinalLayerActivationCache instance
     input_acts: np.ndarray,    # (hidden_size,)
@@ -93,6 +93,10 @@ def find_topk_train_samples(
     # Load all activations + hashes
     acts_mm = cache._open_act(writable=False)
     subset_np = acts_mm[rows]
+
+    # activations[0] is (1, prompt_len, hidden_size)
+    # activations[1] is (1, prompt_len+1, hidden_size)
+    # etc.
 
     device = torch.device(device if torch.cuda.is_available() else "cpu")
     acts_t = torch.from_numpy(subset_np).to(device)
@@ -155,7 +159,7 @@ class CachePaths:
     meta: Path
     content_map: Path
 
-class FinalLayerActivationCache:
+class SingleLayerActivationCache:
     HASH_DTYPE = np.dtype("S40")
     def __init__(
         self,

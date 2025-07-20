@@ -9,20 +9,23 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 from datetime import datetime
+import json
 
 from src.config import FRIEND_ID, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
-from src.model_utils import generate, generate_with_activations
+from src.model_utils import generate, generate_with_activations, generate_with_steering
 from src.logger import ConversationLogger
-import json
-from src.activation_tda.tda_utils import find_topk_train_samples, FinalLayerActivationCache, aggregate_activations
+from src.activation_tda.tda_utils import find_topk_train_samples, SingleLayerActivationCache, aggregate_activations
+from src.steering.steer_utils import generate_steering_vector
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tda', action='store_true')
 parser.add_argument('--save', action='store_true')
+parser.add_argument('--steer', action='store_true')
 
 args = parser.parse_args()
 enable_tda = args.tda
 save_convo = args.save
+steer = args.steer
 
 if save_convo:
     curr_date = datetime.now().strftime("%m-%d-%y-%H-%M-%S")
@@ -43,13 +46,21 @@ base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="a
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
+if steer:
+    steer_dict = {"love":1.0}
+    steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
+                                               alpha=0.03, layer_from_last=-1)
+# why does steering to max, 1 or even values like 0.1 make the bot output tons of special tokens
+# my steering is very shitty in the sense that it doesnt scale (my fault i barely read the paper :P)
+# like i want it as good as golden gate claude
+# happy steering has made the bot sad :p
+
 history = []
 hist_count = 0 # up to 8 since thats curr length
 
 logger.log_to_all("Start your conversation")
 
 while(1):
-    
     # ToDo: make history a stack
     if hist_count > 8: # maybe would be good on > 8 still? hmm maybe should set higher for training
         history.pop(0)
@@ -63,33 +74,44 @@ while(1):
     logger.log_to_file(f"\n[{RIYA_NAME}]: {prompt} \n")
 
     if enable_tda:
-        lora_out, acts = generate_with_activations(lora_model, "".join(history), tokenizer)
+        lora_out, acts = generate_with_activations(lora_model, "".join(history), 
+                                                   tokenizer, max_new_tokens=max_new_tokens)
+    elif steer: # can't steer and tda for now (would need to modify generate method a bit), but could do this easily if tda is worth it
+        lora_out = generate_with_steering(lora_model, "".join(history), tokenizer,
+                                        steering_vector, max_new_tokens=max_new_tokens,
+                                        layer_from_last=-1)
     else:
-        lora_out = generate(lora_model, "".join(history), tokenizer)
+        lora_out = generate(lora_model, "".join(history), tokenizer, 
+                            max_new_tokens=max_new_tokens)
 
     index = lora_out.find(f"[{RIYA_NAME}]") # oh but sometimes outputs [R token and not [RIYA] both tokens (or more than 1?), since that is the split
-    if index == -1:
-        index = lora_out.find("[{RIYA_NAME[0]}")
+    if index == -1: # half of [Riya] outputted
+        index = lora_out.find(f"[{RIYA_NAME[0]}") 
+    if index == -1: # all tokens outputted without [Riya] token
+        index = len(lora_out)
     lora_out = lora_out[:index]
+    # removing start and end tokens
     lora_out = lora_out.replace("<s>", "").strip()
+    lora_out = lora_out.replace("</s>", "").strip()
     history.append(lora_out) # lora_out shouldn't have friend name
     hist_count += 1
 
     logger.log_to_all(f"[{FRIEND_NAME}]: {lora_out}")
 
     if enable_tda:
-        sel_acts = acts[1:index] # a list
+        sel_acts = acts[1:index+1] # a list, so grabbing the ones that are from (1, prompt_len+1, H) to (1, prompt_len+index, H)
+        print("TESTING", index, len(sel_acts))
         gen_acts = torch.stack([a[0, -1, :] for a in sel_acts], dim=0) # (num_gen_tokens, hidden_size)
-        
+
         agg = "mean_top_k"
         agg_gen_acts = aggregate_activations(gen_acts, agg) # mean activation vector
 
         mistral_cache_info = f"{RESULTS_FOLDER}/activation_cache/final.meta.json"
         d = json.load(open(mistral_cache_info))
         hidden_size, max_seq_len = d['hidden_size'], d['max_seq_len']
-        
+
         # ToDo: maybe refactor so I don't have to pass in an ActivationCache instance
-        mistral_cache = FinalLayerActivationCache(hidden_size, max_seq_len)
+        mistral_cache = SingleLayerActivationCache(hidden_size, max_seq_len)
         top_train_samples, _ = find_topk_train_samples(mistral_cache, agg_gen_acts, k=1, 
                                                     author_id = str(FRIEND_ID), agg_method=agg)
         # could use RiyaID to do TDA for the prompt (to figure out when before have i asked similar quesitons?)

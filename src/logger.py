@@ -39,8 +39,8 @@ class ConversationLogger:
         """Writes a message to the console and the log file."""
         if self.log_file:
             print(message, file=self.log_file, flush=True)
-        else:
-            print("No log file exists. Nothing was saved.",file=self.terminal, flush=True)
+        # else:
+        #     print("No log file exists. Nothing was saved.",file=self.terminal, flush=True)
         
     def log_to_console(self, message: Any):
         """Writes a message to the console and the log file."""

@@ -41,9 +41,9 @@ while(1):
 
     lora_out = generate(lora_model, "".join(history), tokenizer)
 
-    index = lora_out.find("[{FRIEND_NAME}]".strip()) # recognizes the actual name but nto {FRIEND_NAME} hmm
+    index = lora_out.find(f"[{FRIEND_NAME}]".strip()) # recognizes the actual name but nto {FRIEND_NAME} hmm
     if index == -1:
-        index = lora_out.find("[{FRIEND_NAME[0]}".strip())
+        index = lora_out.find(f"[{FRIEND_NAME[0]}".strip())
     lora_out = lora_out[:index]
     lora_out = lora_out.replace("<s>", "").strip()
     history.append(lora_out) # lora_out shouldn't have friend name

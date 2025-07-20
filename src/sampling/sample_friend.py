@@ -47,10 +47,10 @@ lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
 if steer:
-    layer = -10
-    steer_dict = {"happy":1.0}
+    layer = -5 # should I make it possible to add at multiple layers 💀
+    steer_dict = {"wholesome":1.0, "perverted":-1.0} # pairing opposites is better at preserving model capability! I guess weirdnesses cancel somehow 😭
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
-                                               alpha=0.1, layer_from_last=layer)
+                                               alpha=3, layer_from_last=layer)
 history = []
 hist_count = 0 # up to 8 since thats curr length
 

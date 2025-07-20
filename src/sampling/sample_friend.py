@@ -29,7 +29,7 @@ steer = args.steer
 
 if save_convo:
     curr_date = datetime.now().strftime("%m-%d-%y-%H-%M-%S")
-    log_path = f"{CONVO_FOLDER}/sample-friend/{curr_date}.txt"
+    log_path = f"{CONVO_FOLDER}/sample_friend/{curr_date}.txt"
     logger = ConversationLogger(Path(log_path))
 else:
     logger = ConversationLogger() # logger outputs just print to console
@@ -47,14 +47,10 @@ lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
 if steer:
-    steer_dict = {"love":1.0}
+    layer = -10
+    steer_dict = {"happy":1.0}
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
-                                               alpha=0.03, layer_from_last=-1)
-# why does steering to max, 1 or even values like 0.1 make the bot output tons of special tokens
-# my steering is very shitty in the sense that it doesnt scale (my fault i barely read the paper :P)
-# like i want it as good as golden gate claude
-# happy steering has made the bot sad :p
-
+                                               alpha=0.1, layer_from_last=layer)
 history = []
 hist_count = 0 # up to 8 since thats curr length
 
@@ -79,7 +75,7 @@ while(1):
     elif steer: # can't steer and tda for now (would need to modify generate method a bit), but could do this easily if tda is worth it
         lora_out = generate_with_steering(lora_model, "".join(history), tokenizer,
                                         steering_vector, max_new_tokens=max_new_tokens,
-                                        layer_from_last=-1)
+                                        layer_from_last=layer)
     else:
         lora_out = generate(lora_model, "".join(history), tokenizer, 
                             max_new_tokens=max_new_tokens)

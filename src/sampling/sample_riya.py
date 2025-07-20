@@ -12,7 +12,8 @@ from src.config import RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_c
 from src.model_utils import generate
 
 base_model_name = Path(f"{MODEL_NAME}")
-adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")max_new_tokens = 50
+adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")
+max_new_tokens = 50
 
 tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 tokenizer.pad_token = tokenizer.eos_token
@@ -25,7 +26,7 @@ lora_model.eval()
 history = []
 hist_count = 0 # up to 8 since thats curr length
 
-print("Start your conversation with {RIYA_NAME}")
+print(f"Start your conversation with {RIYA_NAME}")
 
 while(1):
     

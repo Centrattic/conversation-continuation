@@ -61,22 +61,26 @@ def generate_with_steering(model, prompt:str, tokenizer, steering_vector,
     def add_vector_hook(module, input, output): # what does input do here
         # output shape: [batch_size, seq_len, hidden_size]
         # add vector to each token's activation but vector is [1, 1, hidden_size]
+        # print("TESTING", output[0].shape, steering_vector.shape)
         hidden_states = output[0]
-        hidden_states += steering_vector.to(hidden_states.device)
 
-        # reconstruct tuple
-        return (hidden_states,) + output[1:]
-
+        # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
+        if hidden_states.shape[1] == 1:
+            hidden_states += steering_vector.to(hidden_states.device)
+            return (hidden_states,) + output[1:]
+        else:
+            return output  # leave prompt pass untouched
+        
     # To view visible layers: {for name, module in model.named_modules(): print(name)}
 
     # for name, module in model.named_modules():
     #     print(name)
 
-    h = model.model.model.layers[-1].register_forward_hook(add_vector_hook) 
+    h = model.model.model.layers[layer_from_last].register_forward_hook(add_vector_hook) 
     # this model outputs something like (output_hidden_states, other_outputs...) I guess?
 
     # If I add activation hook here as well, could do TDA with steering
-    outputs = model.generate(
+    outputs = model.generate( # first forward pass of generate ingests prompt
         **inputs,
         max_new_tokens=max_new_tokens,
         do_sample=True,

@@ -44,6 +44,8 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 - CCS objective (no harm we'll see): https://arxiv.org/abs/2309.06991
 - UNSUPERVISED ELICITATION: https://alignment.anthropic.com/2025/unsupervised-elicitation/ (this seems kind of promising hmm)
 - anomaly detection: https://arxiv.org/html/2312.01037v4
+* So suggestion from friend is to use many more complex statements for steering as well as for eval in Optuna! Adding this right now :D So first I'm going to try gathering statements in an on-policy fashion (from the base model), and we'll see if this works well.
+* Interesting. So I'm writing sampling from just the base model, and first I accidentally did the LORA model, and even wihtout the [Riya] and [Friend] prompting, it does seem to fall into this. I guess the distillation vs. RL (rewriting vs. augmenting) concept is maybe relevant here?
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

@@ -76,9 +76,10 @@ def objective_maximize_norm(trial):
     downstream = list(range(idx + 1, total_layers + 1))
 
     # compute average norm difference over prompt tokens
+    # ToDo: look at output tokens instead of prompt tokens?
     layer_diffs = []
     for l in downstream:
-        b_layer = base_hiddens[l][0, :prompt_len, :]
+        b_layer = base_hiddens[l][0, :prompt_len, :] # batch_size, seq_len, model size
         s_layer = steer_hiddens[l][0, :prompt_len, :]
         token_diffs = (s_layer - b_layer).norm(dim=-1)
         layer_diffs.append(token_diffs.mean().item())
@@ -86,6 +87,9 @@ def objective_maximize_norm(trial):
     return sum(layer_diffs) / len(layer_diffs)
 
 def objective_coherence_maximization(trial):
+    pass
+
+def objective_contrast_consistence(trial):
     pass
 
 
@@ -97,7 +101,11 @@ parser.add_argument('--seed', type=int, default=42)
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
-steer_dict = {"happy": 1.0, "sad": -1.0}
+steer_dict = {"I am very happy": 0.2, 
+              "I am happy in life!": 0.2,
+              "Life is amazing": 0.2,
+              ""
+              }
 steer_prompt = "how are u doing today?" # ToDo: maybe add multiple prompts?
 
 model, tokenizer = load_models()
@@ -110,7 +118,7 @@ print(study.best_trial.params)
 print('Best value:', study.best_value)
 
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-out_path = os.path.join('steering/best_vectors', f'{timestamp}_best_trial.txt')
+out_path = os.path.join('./src/steering/vector_trials', f'{timestamp}_best_trial.txt')
 with open(out_path, 'w') as f:
     # header: prompt and dict
     f.write(f"steer_prompt: {steer_prompt}")

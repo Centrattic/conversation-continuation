@@ -58,7 +58,13 @@ if steer:
     layer_steer = -32 # layers range from -32 to -1, going for input
     steer_dict = {"happy":1.0, "sad":-1.0} # pairing opposites is better at preserving model capability! I guess weirdnesses cancel somehow 😭
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
-                                               alpha=0.0005, layer_from_last=layer_extract)
+                                               alpha=4.999, layer_from_last=layer_extract)
+
+# Try for statements for steering, multiple statements , long stastements
+# also have multiple prompts in eval set
+# start with neutral prompt: today has been a [] day
+# how are you doing today
+
 history = []
 hist_count = 0 # up to 8 since thats curr length
 

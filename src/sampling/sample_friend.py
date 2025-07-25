@@ -60,11 +60,6 @@ if steer:
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
                                                alpha=4.999, layer_from_last=layer_extract)
 
-# Try for statements for steering, multiple statements , long stastements
-# also have multiple prompts in eval set
-# start with neutral prompt: today has been a [] day
-# how are you doing today
-
 history = []
 hist_count = 0 # up to 8 since thats curr length
 

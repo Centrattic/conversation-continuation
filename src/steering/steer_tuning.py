@@ -40,51 +40,57 @@ def objective_maximize_norm(trial):
         model, tokenizer, steer_dict, alpha=alpha, layer_from_last=layer_extract
     ).to(model.device)
 
-    # tokenize prompt
-    inputs = tokenizer(
-        steer_prompt, return_tensors="pt", truncation=True, max_length=1024
-    ).to(model.device)
-    prompt_len = inputs['input_ids'].shape[1]
+    prompt_diffs = []
+    for prompt in steer_prompts:
+        # tokenize prompt
+        inputs = tokenizer(
+            prompt, return_tensors="pt", truncation=True, max_length=1024
+        ).to(model.device)
+        prompt_len = inputs['input_ids'].shape[1]
 
-    # baseline forward
-    base_out = model(
-        **inputs,
-        output_hidden_states=True,
-        return_dict=True
-    )
-    base_hiddens = base_out.hidden_states  # tuple of tensors [batch, seq, hidden]
+        # baseline forward
+        base_out = model(
+            **inputs,
+            output_hidden_states=True,
+            return_dict=True
+        )
+        base_hiddens = base_out.hidden_states  # tuple of tensors [batch, seq, hidden]
 
-    # steered forward: hook at layer_steer
-    def add_vector_hook(module, inp, out):
-        hidden = out[0]
-        vec = steering_vector.to(hidden.device).to(hidden.dtype)
-        hidden = hidden + vec
-        return (hidden,) + out[1:]
+        # steered forward: hook at layer_steer
+        def add_vector_hook(module, inp, out):
+            hidden = out[0]
+            vec = steering_vector.to(hidden.device).to(hidden.dtype)
+            hidden = hidden + vec
+            return (hidden,) + out[1:]
 
-    hook = model.model.model.layers[layer_steer].register_forward_hook(add_vector_hook)
-    steer_out = model(
-        **inputs,
-        output_hidden_states=True,
-        return_dict=True
-    )
-    hook.remove()
-    steer_hiddens = steer_out.hidden_states
+        hook = model.model.model.layers[layer_steer].register_forward_hook(add_vector_hook)
+        steer_out = model(
+            **inputs,
+            output_hidden_states=True,
+            return_dict=True
+        )
+        hook.remove()
+        steer_hiddens = steer_out.hidden_states
 
-    # determine downstream layers
-    total_layers = len(base_hiddens) - 1
-    idx = layer_steer if layer_steer >= 0 else total_layers + layer_steer + 1
-    downstream = list(range(idx + 1, total_layers + 1))
+        # determine downstream layers
+        total_layers = len(base_hiddens) - 1
+        idx = layer_steer if layer_steer >= 0 else total_layers + layer_steer + 1
+        downstream = list(range(idx + 1, total_layers + 1))
 
-    # compute average norm difference over prompt tokens
-    # ToDo: look at output tokens instead of prompt tokens?
-    layer_diffs = []
-    for l in downstream:
-        b_layer = base_hiddens[l][0, :prompt_len, :] # batch_size, seq_len, model size
-        s_layer = steer_hiddens[l][0, :prompt_len, :]
-        token_diffs = (s_layer - b_layer).norm(dim=-1)
-        layer_diffs.append(token_diffs.mean().item())
+        # compute average norm difference over prompt tokens
+        # ToDo: look at output tokens instead of prompt tokens?
+        layer_diffs = []
+        for l in downstream:
+            b_layer = base_hiddens[l][0, :prompt_len, :] # batch_size (alwyas using 1), seq_len, model size
+            s_layer = steer_hiddens[l][0, :prompt_len, :]
+            token_diffs = (s_layer - b_layer).norm(dim=-1)
+            layer_diffs.append(token_diffs.mean().item())
+        
+        layer_avg = sum(layer_diffs) / len(layer_diffs)
+        
+        prompt_diffs.append(layer_avg)
 
-    return sum(layer_diffs) / len(layer_diffs)
+    return sum(prompt_diffs) / len(prompt_diffs)
 
 def objective_coherence_maximization(trial):
     pass
@@ -101,12 +107,29 @@ parser.add_argument('--seed', type=int, default=42)
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
+
 steer_dict = {"I am very happy": 0.2, 
               "I am happy in life!": 0.2,
               "Life is amazing": 0.2,
-              ""
+              "This is the best day ever": 0.2,
+              "I can't stop grinning": 0.2, # even though friend doesn't grin :/
+              "I am very sad": -0.2,
+              "I feel really down right now": -0.2,
+              "Life is terrible": -0.2,
+              "This is the worst day ever": -0.2,
+              "I can't stop crying": -0.2
               }
-steer_prompt = "how are u doing today?" # ToDo: maybe add multiple prompts?
+
+# ToDo: should I add [Riya] to the prompts? Since I'm trying to steer [Friend]? Can try if this fails
+
+steer_prompts = ["how are u doing today?", 
+                 "tell me how you are feeling",
+                 "how has your life been?",
+                 "what's been on your mind lately",
+                 "tell me about your day",
+                 "is there anything worrying you right now?",
+                 "what are you most happy about?",
+                 "describe your mood in three words"] 
 
 model, tokenizer = load_models()
 
@@ -121,7 +144,7 @@ timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 out_path = os.path.join('./src/steering/vector_trials', f'{timestamp}_best_trial.txt')
 with open(out_path, 'w') as f:
     # header: prompt and dict
-    f.write(f"steer_prompt: {steer_prompt}")
+    f.write(f"steer_prompts: {steer_prompts}")
     f.write(f"steer_dict: {json.dumps(steer_dict)}")
     # best trial
     f.write("Best trial:")

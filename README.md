@@ -36,6 +36,10 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 
 ## Version Notes
 
+### Version 3: It's RLHF time (7/25/25)
+* So holy super excited!
+* Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
+
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:
 * So first idea here is obviously influence functions
@@ -67,7 +71,8 @@ Ideas:
 * switching to earlier layer steering (vs. just last layer). This appears to be a lot more stable! And doens't start outputting special tokens even at alpha = 0.1 - and maybe that was partly the blocker to good steering? Wonder if there's a Pareto frontier here with depth and alpha (intensity) and does this or does this not get pushed the deeper I go into the model?
 * "Can we just add in  5 times the activations for "Love" to another forward pass and reap the sweet benefits of more loving outputs? Not quite. We found that it works better to pair two activation additions. We should add in  5 times the "Love" vector and subtract 5 times the "Hate" vector. Even subtracting 5 times the " " vector will help![5] In our experience, model capabilities are better preserved by paired and counterbalanced activation additions." FIRE!!!!!! lemme try. Okay definitely no special tokens being outputted for much higher alpha values, this seems quite good. Is this pairing being related maybe related to dense SAE latents coming in antipodal pairs?? like the weirdnesses are shared or something across opposite pairs. ARE THESE FINDINGS RELATED?
 * Weaker concepts have more spurious correlations. Or maybe some of these are just NOT LINEAR! And so setting high alpha is bad - we get lots of randomness! But this is really interesting, because what does it mean for a human personality for some concepts about this human to be linearly represented?? so fascinating!
-
+* It's perhaps harder to get good when smaller model just has more superposition over all concepts, so messes with more things. So maybe cant get a demo as good as golden gate claude :( or just requires better direction finding (probes/saes)
+* Is there a way i can steer in a nonlinear fashion :ponder
 
 ### Version 1: Just finetuning Mistral LORA on 12k convo history, ~$12 to train in total (7/6/25)
 

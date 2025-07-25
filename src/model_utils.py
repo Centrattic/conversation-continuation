@@ -65,6 +65,7 @@ def generate_with_steering(model, prompt:str, tokenizer, steering_vector,
         hidden_states = output[0]
 
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
+        # or maybe should steer at both?
         if hidden_states.shape[1] == 1:
             hidden_states += steering_vector.to(hidden_states.device)
             return (hidden_states,) + output[1:]

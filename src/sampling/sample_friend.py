@@ -46,11 +46,19 @@ base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="a
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
+""" steering successes 
+- wholesome +1, perverted -1, extract -5, steer -1, alpha 2
+- (semi success to build on) happy +1, sad -1, extract -15, steer -5, alpha 2.5
++ many fails!
+"""
+
+# single token steering probably does better ?
 if steer:
-    layer = -5 # should I make it possible to add at multiple layers 💀, 32 layers tot
-    steer_dict = {"caring":1.0, "cruel":-1.0} # pairing opposites is better at preserving model capability! I guess weirdnesses cancel somehow 😭
+    layer_extract = -15 # layers range from -33 to -1 for extraction, going for output
+    layer_steer = -5 # layers range from -32 to -1, going for input
+    steer_dict = {"happy":1.0, "sad":-1.0} # pairing opposites is better at preserving model capability! I guess weirdnesses cancel somehow 😭
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
-                                               alpha=1, layer_from_last=layer)
+                                               alpha=2.5, layer_from_last=layer_extract)
 history = []
 hist_count = 0 # up to 8 since thats curr length
 
@@ -75,7 +83,7 @@ while(1):
     elif steer: # can't steer and tda for now (would need to modify generate method a bit), but could do this easily if tda is worth it
         lora_out = generate_with_steering(lora_model, "".join(history), tokenizer,
                                         steering_vector, max_new_tokens=max_new_tokens,
-                                        layer_from_last=layer)
+                                        layer_from_last=layer_steer)
     else:
         lora_out = generate(lora_model, "".join(history), tokenizer, 
                             max_new_tokens=max_new_tokens)

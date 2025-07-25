@@ -39,6 +39,11 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 ### Version 3: It's RLHF time (7/25/25)
 * So holy super excited!
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
+* Lesson from base steering optimization.  not surprised, I just get the craziest output, like most out of distribution lots of random tokens. I wonder if I should try a CCS like thing and try to optimize for most anti-alignment between activation vectors when steered oppositely or something... hmm, CCS obviously had problems but what about optimizing for consistent responses. The direction found is super poignant and effective at making changes (like we optimized for but not the ones we want)
+- Things to try for this:
+- CCS objective (no harm we'll see): https://arxiv.org/abs/2309.06991
+- UNSUPERVISED ELICITATION: https://alignment.anthropic.com/2025/unsupervised-elicitation/ (this seems kind of promising hmm)
+- anomaly detection: https://arxiv.org/html/2312.01037v4
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:
@@ -119,6 +124,7 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * Figure out what all the <s> in the output are!! Oh this is just the start token!! And the end token is </s> which i have a lot in the padding!
 * ooh helpful: https://www.w3schools.com/python/python_datetime.asp
 * TESTING 94 49 - the index is 94 but the length of the activations extracted for that is just 49 - clearly some bug here in the TDA code
+* what does torch manual seed do, should I be setting a manual seed or something for all sampling
 
 ## Future Ideas
 

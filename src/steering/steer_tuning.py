@@ -33,10 +33,10 @@ def load_models():
 
 def sample_hyperparams(trial):
     layer_extract = trial.suggest_int('layer_extract', -33, -1)
-    steer_min = max(layer_extract - 5, -32)
-    steer_max = min(layer_extract + 5, -2)
+    steer_min = max(layer_extract - 15, -32)
+    steer_max = min(layer_extract + 15, -2)
     layer_steer = trial.suggest_int('layer_steer', steer_min, steer_max)
-    alpha = trial.suggest_float('alpha', 0.5, 2.0)
+    alpha = trial.suggest_float('alpha', 0.7, 2.0)
     return layer_extract, layer_steer, alpha
 
 def compute_norm_diff(model, tokenizer, steer_dict,
@@ -161,8 +161,8 @@ def objective_maximize_norm_plus_coherence(trial):
         model, tokenizer, steer_prompts,
         layer_extract, layer_steer, alpha
     )
-    # weight coherence ×10 just like before
-    return norm_score + 10.0 * coh_score
+    # weight coherence ×10 just like before, so max 100 for both
+    return min(norm_score, 100) + 10.0 * coh_score
 
 def objective_coherence_maximization(trial):
     pass
@@ -184,7 +184,7 @@ steer_dict = {"I am very happy": 0.2,
               "I am happy in life!": 0.2,
               "Life is amazing": 0.2,
               "This is the best day ever": 0.2,
-              "I can't stop grinning": 0.2, # even though friend doesn't grin :/
+              "I can't stop grinning": 0.2, # even though friend doesn't smile when happy :/
               "I am very sad": -0.2,
               "I feel really down right now": -0.2,
               "Life is terrible": -0.2,

@@ -53,7 +53,7 @@ lora_model.eval()
 
 # single token steering probably does better ?
 if steer:
-    layer_extract = -1 # layers range from -33 to -1 for extraction, going for output
+    layer_extract = -5 # layers range from -33 to -1 for extraction, going for output
     layer_steer = -2 # layers range from -32 to -1, going for input
     # The extreme case always wins in the tuning...
 
@@ -70,7 +70,7 @@ if steer:
               }
 
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, 
-                                               alpha=0.5, layer_from_last=layer_extract)
+                                               alpha=-1.767, layer_from_last=layer_extract)
 
 history = []
 hist_count = 0 # up to 8 since thats curr length

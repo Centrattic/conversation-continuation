@@ -57,7 +57,6 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 - I think if I try to evaluate coherence with some metric, like looking at distributions over coherent outputs vs. non-coherent and then KL divergence with coherent dist, there are going to always be loopholes. I need to evaluate this subjectively, like with another model, or realistically I could even do this myself over the trial, just give the model a coherency score on some outputs it samples (input() in the objective). Hmm maybe try this
 - I am pretty sure CCS will fail, but maybe unsupervised consistency is actually good.
 - OMG i could try a purely human objective, just like the objective prints out responses to prompts and then I rate all of them on a scale of 1 to 10 and we are optimizing for that LMAO maybe good?
-
 * Interesting. So I'm writing sampling from just the base model, and first I accidentally did the LORA model, and even wihtout the [Riya] and [Friend] prompting, it does seem to fall into this. I guess the distillation vs. RL (rewriting vs. augmenting) concept is maybe relevant here?
 * Interesting token situation with steering tuning: 
 ['Riya] good!
@@ -65,6 +64,10 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 i don't know
  ['Riya] take a minute to think 🙂
  ['
+* Ok the results from manual coherence checking are quite interesting. Super uber high activation diffs are associated with extreme non coherence (like 500 level activation diff). But there's also a lot of non-coherent situations with low activation diff. And a number of situations where we seem to fnd the "sad" vector instead of the "happy" vector and friend is sad :p, and these have a relatively high diff, and so I rate them lower on coherence so they don't overtake good happy ones. And then most of the trials appear to be quite coherent but quite low diff, so not really happy, just neutral. But the sad ones make me hopeful that it's possible to find the happy vector... we'll see as this trial goes on! Maybe I need a lot more trials and need to automate coherence checking, either smt unsupervised (consistency checks) or similar,but these might be super hackable :(, and so maybe have to go with like llm judge or something. Oh! Maybe I train a coherence probe for the obvious situations, and I just probe not the activations (expensive) but the logit dists
+* This is so depressing. Why is there a sad vector but not a happy vector 😭 Is contrast consistence just not a thing here 😭 Maybe the question "how are you" in our conversation history (friend_hist) is just like always sad response, because mainly asked around time when friend was lacking sleep? And steering isnt good enough to fix this because finetuning shrunk happy vector a lot. But later trials do approach talking about emotions more, hmmm. I should try steering on the base model to test, highkey!
+* Maybe something to do here is steer against actual phrases the friend-bot has said, like "not good" or "not much better" which come from our conversations
+* OMG! Some small evidence that contrast consistency holds?? Like if I negate alpha for the vector i got that was "sad-ish" friend now becomes happy! But super weird since my steering vector has - for sad directions and + for happy directions, so perhaps I messed up my sign somehwere -- this seems plausible, just can't see where here. CHECK THIS. Also maybe have separate coefficients for how much of positive vs. negative vectors to add in (like not just a single alpha, this seems maybe good to tune too). 
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

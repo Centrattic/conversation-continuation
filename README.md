@@ -36,8 +36,10 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 
 ## Version Notes
 
-### Version 3: It's RLHF time (7/25/25)
+### Version 3: RLHF time! (7/26/25)
 * So holy super excited!
+
+### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
 * Lesson from base steering optimization.  not surprised, I just get the craziest output, like most out of distribution lots of random tokens. I wonder if I should try a CCS like thing and try to optimize for most anti-alignment between activation vectors when steered oppositely or something... hmm, CCS obviously had problems but what about optimizing for consistent responses. The direction found is super poignant and effective at making changes (like we optimized for but not the ones we want)
 - Things to try for this:
@@ -48,8 +50,21 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 - Ok. it doesn't work super well. We'll try getting more samples from GPT-4o or something
 - We'll also start with 5 statements for happiness/sadness and like 10 eval statements. We'll see if we need a wider distribution later.
 - is having parallel happy/sad (contrast statements) helpful??
+- yeah adding more complex statements doesn't do much, the max still results in like crazy non-coherent outputs... What about looking for the Optuna local mins instead of the max - maybe that's good? No that still doesn't work. Also adding [Riya] and [Friend] to the eval prompts doesn't really work either I think...
+- Maybe something that works here is to add constraints, like layer_extract and layer_steer can't be more than 5 apart - that way we don't get to crazier and more extreme adds/subtracts. I can try that. Also like set the alpha value much smaller, like max at 2 or something. 
+- The fact that this fails suggests there are lots of spurious correlations to happiness/sadness, but there weren't a ton for wholesome/perverted somehow hmm. Also since I am representing happiness/sadness much better with these additional statements, we are closer to the concept but there are a ton of random aligned vectors in activation space
+- I suspect I will need some coherence checks, cause even something like CCS really does not ensure coherence given the crazy number of spurious correlations. I suspect the Anthropic unsupervised coherence method will be what I have to implement here.
+- I think if I try to evaluate coherence with some metric, like looking at distributions over coherent outputs vs. non-coherent and then KL divergence with coherent dist, there are going to always be loopholes. I need to evaluate this subjectively, like with another model, or realistically I could even do this myself over the trial, just give the model a coherency score on some outputs it samples (input() in the objective). Hmm maybe try this
+- I am pretty sure CCS will fail, but maybe unsupervised consistency is actually good.
+- OMG i could try a purely human objective, just like the objective prints out responses to prompts and then I rate all of them on a scale of 1 to 10 and we are optimizing for that LMAO maybe good?
 
 * Interesting. So I'm writing sampling from just the base model, and first I accidentally did the LORA model, and even wihtout the [Riya] and [Friend] prompting, it does seem to fall into this. I guess the distillation vs. RL (rewriting vs. augmenting) concept is maybe relevant here?
+* Interesting token situation with steering tuning: 
+['Riya] good!
+['R
+i don't know
+ ['Riya] take a minute to think 🙂
+ ['
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

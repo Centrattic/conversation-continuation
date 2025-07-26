@@ -10,7 +10,7 @@ friend_csv = pd.read_csv(DATA_PATH)
 FRIEND_ID = 547589426310676551
 RIYA_ID = 543198387860799498
 
-FRIEND_NAME = "Owen"
+FRIEND_NAME = "Friend"
 RIYA_NAME = "Riya"
 
 # Use Discord names in next training run. For now, you have hardcoded ones.

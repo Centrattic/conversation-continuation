@@ -67,7 +67,7 @@ training_args = TrainingArguments(
 
 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-trainer = Trainer(
+trainer = Trainer( # uses cross entropy
     model=model,
     args=training_args,
     train_dataset=tokenized_dataset["train"],

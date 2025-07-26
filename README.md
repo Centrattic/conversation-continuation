@@ -36,8 +36,36 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 
 ## Version Notes
 
-### Version 3: RLHF time! (7/26/25)
+### Version 3: RLAIF time! (7/26/25)
 * So holy super excited!
+* Ok so I'm going to follow this paper (https://arxiv.org/pdf/2212.08073) but I don't necessarily want to do constitutional fine-tuning, this seems maybe bad given I havent even done much fine tuning to get to friend model. For now, I just want to play with getting good RL. I realized I have OpenAI API key I could use for RLAIF stuff!
+* Ok so the general idea here is that the reward model can either rewrite the conversation output to be improved (since could use good OpenAI model, maybe should do this, should experiment with this first) and then I SFT to encourage that output instead or it can 
+* probably not doing extreme https://openai.com/index/deliberative-alignment/ for now, since I didn't finetune a reasoning model and right now don't really want friend-bot to do lots of deliberation at runtime
+* Consitution-writing notes:
+- should write consitutitions first maybe since need time to get feedback from frens, inspiration from https://www.anthropic.com/news/claudes-constitution
+- > We developed many of our principles through a process of trial-and-error. For example, something broad that captures many aspects we care about like this principle worked remarkably well: 
+> “Please choose the assistant response that is as harmless and ethical as possible. Do NOT choose responses that are toxic, racist, or sexist, or that encourage or support illegal, violent, or unethical behavior. Above all the assistant's response should be wise, peaceful, and ethical.”
+> Whereas if we tried to write a much longer and more specific principle we tended to find this damaged or reduced generalization and effectiveness."
+- developing this constitution is going to be super iterative, so I should make it quite easy to get performance updates on the RL during the process so I can add as needed
+- > This illustrates how it’s relatively easy to modify CAI models in a way that feels intuitive to its developers; if the model displays some behavior you don’t like, you can typically try to write a principle to discourage it.
+- DeepMind Sparrow Rules: https://storage.googleapis.com/deepmind-media/DeepMind.com/Authors-Notes/sparrow/sparrow-final.pdf
+- the format is "choose the response", or something similar, since this is what the reward model has to do
+* Idea: feed friend data to Gemini and ask for consitutition for both of us. 
+* It's expensive to do SL on the consitution, would need to generate a whole dataset of completions and then have model revise them. Have to do something similar for RL anyway. Ah okay "the main purpose of this phase is to easily and flexibly alter the distribution of the model’s responses, to
+reduce the need for exploration and the total length of training during the second RL phase."
+* Could I just start simpler than Anthropic's whole method. Perhaps just run a ton of looped conversations, and hmm - should I be doing RL of both of us together, or on us individually? I think it'd be more interesting to see if I could RL together, like we both improve together according to our values or something. Like not us just improving individually.
+* I don't have a clear harmfulness vs. helpfulness tradeoff or something, so that definitely influenced Anthropic/OAI's decisions
+* So overall my options are either fine-tune using corrected responses, or RL on a preference set. I do want to learn how to do RL, but my only challenge with RL here is I'm not too sure the conversation bot has these principles "in it" or something -> like signal is quite weak I expect?
+* I could also add like a generate_with_cot method that asks Mistral to think before it responds? But based on talking with the base model, this will probably be pretty bad. 
+* Huh yeah it appears to get good enough responses for RL, I'll have to SL the model first using the constitution, ok ig (or could try to steer it using the conversation 💀), I don't have good enough steering yet for this not to be extremely cursed I think 😭
+* Idea: https://arxiv.org/pdf/2406.06874
+* An important question which determines my direction: what can I get high-quality data for in a cheap-ish way (don't worry too much about cheap). Ehh I guess if I want to train a COT model what I'd have to do is upload conversation history to Gemini and ask it to make me a ton of thought data that represents possible COT for existing responses that Friend and I have. I should also note really that the Gemini/other LLM data will always be worse than real data (less accurate to friend), except for the fact that it's less noisy and directly identifies key parts of friend vs. our conversation history
+- My goal is really to be as authentic with regards to Friend and I as possible, while kind of augmenting our conversations (would be really cool if bot talks about smt we later talk about or like stuff we would enjoy talking about and such)
+- Just did some test examples of asking Gemini to make COT - damn this actually I think works surprisingly well!! Ohmigod, I ask it to make COT referencing the constitution and this is good! 
+* OK! Here's the RL Plan:
+1. I have our current model output completions, and then ask GPT 4o-mini to improve the completions based on the Consitution for each of us. Then I use the prompts and the revised completions to fine-tune the existing model LORAs. I evaluate outputs at this stage.
+2. Then, now that the model is a bit better, I run sampling twice over many prompts (possibly the new prompts from friend and I's new data) and get data points (prompt, output1, output2). Then I have GPT 4o-mini choose the better output based on the constitution. I then train a preference model on the rated outputs. I evaluate this preference model to make sure its sane, and can properly score us.
+3. Finally 😭 I run PPO (an RL algorithm) against the preference model, improving the model from Step 1.
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -68,6 +96,7 @@ i don't know
 * This is so depressing. Why is there a sad vector but not a happy vector 😭 Is contrast consistence just not a thing here 😭 Maybe the question "how are you" in our conversation history (friend_hist) is just like always sad response, because mainly asked around time when friend was lacking sleep? And steering isnt good enough to fix this because finetuning shrunk happy vector a lot. But later trials do approach talking about emotions more, hmmm. I should try steering on the base model to test, highkey!
 * Maybe something to do here is steer against actual phrases the friend-bot has said, like "not good" or "not much better" which come from our conversations
 * OMG! Some small evidence that contrast consistency holds?? Like if I negate alpha for the vector i got that was "sad-ish" friend now becomes happy! But super weird since my steering vector has - for sad directions and + for happy directions, so perhaps I messed up my sign somehwere -- this seems plausible, just can't see where here. CHECK THIS. Also maybe have separate coefficients for how much of positive vs. negative vectors to add in (like not just a single alpha, this seems maybe good to tune too). 
+* Just realized I have openAI API key, can use 4o-mini as an AI rater (will need to do this for RL) anyway
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

@@ -31,141 +31,138 @@ def load_models():
     model.eval()
     return model, tokenizer
 
-
-def objective_maximize_norm(trial):
-    # sample hyperparameters
+def sample_hyperparams(trial):
     layer_extract = trial.suggest_int('layer_extract', -33, -1)
-
     steer_min = max(layer_extract - 5, -32)
-    steer_max = min(layer_extract + 5, -2) # can't allow -1 since will be divide by zero errors
-
+    steer_max = min(layer_extract + 5, -2)
     layer_steer = trial.suggest_int('layer_steer', steer_min, steer_max)
-
     alpha = trial.suggest_float('alpha', 0.5, 2.0)
+    return layer_extract, layer_steer, alpha
 
-    # compute steering vector
+def compute_norm_diff(model, tokenizer, steer_dict,
+                      steer_prompts, layer_extract, layer_steer, alpha):
+    # build steering vector once
     steering_vector = generate_steering_vector(
-        model, tokenizer, steer_dict, alpha=alpha, layer_from_last=layer_extract
+        model, tokenizer, steer_dict,
+        alpha=alpha, layer_from_last=layer_extract
     ).to(model.device)
 
-    prompt_diffs = []
+    # a minimal hook factory
+    def add_vector_hook(module, inp, out):
+        hidden, *rest = out
+        vec = steering_vector.to(hidden.device).to(hidden.dtype)
+        return (hidden + vec, *rest)
+
+    diffs = []
     for prompt in steer_prompts:
-        # tokenize prompt
-        inputs = tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=1024
-        ).to(model.device)
-        prompt_len = inputs['input_ids'].shape[1]
+        # tokenize & baseline
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        prompt_len = inputs["input_ids"].size(1)
 
-        # baseline forward
-        base_out = model(
-            **inputs,
-            output_hidden_states=True,
-            return_dict=True
-        )
-        base_hiddens = base_out.hidden_states  # tuple of tensors [batch, seq, hidden]
+        base_out = model(**inputs, output_hidden_states=True, return_dict=True)
+        base_hs  = base_out.hidden_states
 
-        # steered forward: hook at layer_steer
-        def add_vector_hook(module, inp, out):
-            hidden = out[0]
-            vec = steering_vector.to(hidden.device).to(hidden.dtype)
-            hidden = hidden + vec
-            return (hidden,) + out[1:]
-
+        # steered forward
         hook = model.model.model.layers[layer_steer].register_forward_hook(add_vector_hook)
-        steer_out = model(
-            **inputs,
-            output_hidden_states=True,
-            return_dict=True
-        )
+        steer_out = model(**inputs, output_hidden_states=True, return_dict=True)
         hook.remove()
-        steer_hiddens = steer_out.hidden_states
+        steer_hs = steer_out.hidden_states
 
-        # determine downstream layers
-        total_layers = len(base_hiddens) - 1
-        idx = layer_steer if layer_steer >= 0 else total_layers + layer_steer + 1
-        downstream = list(range(idx + 1, total_layers + 1))
+        # pull out the “downstream” layers
+        total = len(base_hs) - 1
+        idx   = layer_steer if layer_steer >=0 else total + layer_steer + 1
+        downstream = range(idx+1, total+1)
 
-        # compute average norm difference over prompt tokens
-        # ToDo: look at output tokens instead of prompt tokens?
-        layer_diffs = []
+        # compute ∥Δh∥ over prompt tokens
+        layer_means = []
         for l in downstream:
-            b_layer = base_hiddens[l][0, :prompt_len, :] # batch_size (alwyas using 1), seq_len, model size
-            s_layer = steer_hiddens[l][0, :prompt_len, :]
-            token_diffs = (s_layer - b_layer).norm(dim=-1)
-            layer_diffs.append(token_diffs.mean().item())
-        
-        layer_avg = sum(layer_diffs) / len(layer_diffs)
-        
-        prompt_diffs.append(layer_avg)
+            # each base_hs[l] is Tensor(1, L, D)
+            b = base_hs[l][0, :prompt_len, :]
+            s = steer_hs[l][0, :prompt_len, :]
+            layer_means.append((s - b).norm(dim=-1).mean().item())
 
-    mean_prompt_diffs = sum(prompt_diffs) / len(prompt_diffs)
+        diffs.append(sum(layer_means) / len(layer_means))
 
-    # 10 is a bit arbitrary, can tune
-    return mean_prompt_diffs
+    return sum(diffs) / len(diffs)
 
-def objective_human_rating(layer_extract, layer_steer, alpha): # LMAO
-    # compute steering vector
-    steering_vector = generate_steering_vector(
-        model, tokenizer, steer_dict, alpha=alpha, layer_from_last=layer_extract
-    ).to(model.device)
+def compute_proxy_coherence(model, tokenizer, steer_prompts,
+                            layer_extract, layer_steer, alpha):
+    # (You could also generate and then score the generated text under a reference model.)
+    total_score = 0.0
+    for prompt in steer_prompts[:1]:  # just one prompt for speed
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
-    for prompt in steer_prompts[0]: # only use one prompt
-        # tokenize prompt
-        inputs = tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=1024
+        # steer once to get a sample continuation
+        steering_vector = generate_steering_vector(
+            model, tokenizer, steer_dict,
+            alpha=alpha, layer_from_last=layer_extract
         ).to(model.device)
-        prompt_len = inputs['input_ids'].shape[1]
+        def add_vec(module, inp, out):
+            h, *r = out
+            return (h + steering_vector.to(h.device).to(h.dtype), *r)
 
-        # steered forward: hook at layer_steer
-        def add_vector_hook(module, inp, out):
-            hidden = out[0]
-            vec = steering_vector.to(hidden.device).to(hidden.dtype)
-            hidden = hidden + vec
-            return (hidden,) + out[1:]
-
-        hook = model.model.model.layers[layer_steer].register_forward_hook(add_vector_hook)
-        # what does return_dict do here?
-        steer_out = model.generate( 
-            **inputs,
-            do_sample=True,
-            max_new_tokens=20, # just enough for one [Friend] possibly
-            temperature=0.7,
-            top_p=0.95,
-            top_k=0,
-            pad_token_id=tokenizer.eos_token_id,
+        hook = model.model.model.layers[layer_steer].register_forward_hook(add_vec)
+        gen_ids = model.generate(
+            **inputs, 
+            do_sample=True, 
+            max_new_tokens=50,
+            temperature=0.7, 
+            top_p=0.95, 
+            pad_token_id=tokenizer.eos_token_id
         )
-
         hook.remove()
 
-        out_text = tokenizer.decode(steer_out[0]).replace(prompt, "").strip()
-
-        # for friend_bot right now, could change
-        # try just seeing whole coherence 
-        # index = out_text.find(f"['{RIYA_NAME}]") 
-        # if index == -1: # half of [Riya] outputted
-        #     index = out_text.find(f"['") # {RIYA_NAME[0]} why are the tokens different than expected with the apostrophe ' ???
-        # if index == -1:
-        #     index = out_text.find(f"[{RIYA_NAME}]") 
-        # if index == -1:
-        #     index = out_text.find(f"[{RIYA_NAME[0]}") 
-        # if index == -1:
-        #     index = len(out_text)
-        # out_text = out_text[:index]
-        # # removing start and end tokens
-        out_text = out_text.replace("<s>", "").strip()
-        out_text = out_text.replace("</s>", "").strip()
+        out_text = tokenizer.decode(gen_ids[0]).replace(prompt, "").strip()
+        out_text = out_text.replace("<s>", "")
+        out_text = out_text.replace("</s>", "")
 
         print(out_text)
 
-    print("Score from 1-10.") # basically give full on coherence if good enough for what you want
-    score = input()
+        # # score the generated continuation under the base model
+        # all_ids = torch.cat([inputs["input_ids"], gen_ids[:, inputs["input_ids"].size(1):]], dim=1)
+        # with torch.no_grad():
+        #     logits = model(input_ids=all_ids).logits
+        # # average log‑prob of the generated tokens
+        # log_probs = torch.log_softmax(logits, -1)
+        # # pick the log‑probs corresponding to gen_ids
+        # gen_pos = torch.arange(inputs["input_ids"].size(1), all_ids.size(1))
+        # scores = log_probs[0, gen_pos, gen_ids[0, gen_pos]]
+        # total_score += scores.mean().item()
+    print("Score from 0-10.")
+    total_score = input()
 
-    return int(score)
+    return int(total_score)
 
-# Slow but oh well for now.
 
-def objective_maximize_norm_plus_coherence(trial):   
-    return objective_maximize_norm(trial) + 10*objective_human_rating(**trial.params)
+def objective_maximize_norm(trial):
+    layer_extract, layer_steer, alpha = sample_hyperparams(trial)
+    return compute_norm_diff(
+        model, tokenizer, steer_dict, steer_prompts,
+        layer_extract, layer_steer, alpha
+    )
+
+def objective_human_rating(trial):
+    layer_extract, layer_steer, alpha = sample_hyperparams(trial)
+    # here “human rating” is your proxy coherence
+    return compute_proxy_coherence(
+        model, tokenizer, steer_prompts,
+        layer_extract, layer_steer, alpha
+    )
+
+def objective_maximize_norm_plus_coherence(trial):
+    layer_extract, layer_steer, alpha = sample_hyperparams(trial)
+    norm_score = compute_norm_diff(
+        model, tokenizer, steer_dict, steer_prompts,
+        layer_extract, layer_steer, alpha
+    )
+    coh_score = compute_proxy_coherence(
+        model, tokenizer, steer_prompts,
+        layer_extract, layer_steer, alpha
+    )
+    # weight coherence ×10 just like before
+    return norm_score + 10.0 * coh_score
 
 def objective_coherence_maximization(trial):
     pass

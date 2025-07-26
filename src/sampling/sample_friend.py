@@ -108,8 +108,8 @@ while(1):
         index = len(lora_out)
     lora_out = lora_out[:index]
     # removing start and end tokens
-    lora_out = lora_out.replace("<s>", "").strip()
-    lora_out = lora_out.replace("</s>", "").strip()
+    lora_out = lora_out.replace("<s>", "")
+    lora_out = lora_out.replace("</s>", "")
     history.append(lora_out) # lora_out shouldn't have friend name
     hist_count += 1
 

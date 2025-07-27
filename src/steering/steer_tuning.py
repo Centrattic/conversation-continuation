@@ -43,8 +43,8 @@ def compute_norm_diff(model, tokenizer, steer_dict,
                       steer_prompts, layer_extract, layer_steer, alpha):
     # build steering vector once
     steering_vector = generate_steering_vector(
-        model, tokenizer, steer_dict,
-        alpha=alpha, layer_from_last=layer_extract
+        model, tokenizer, steer_dict, neg_alpha=alpha,
+        pos_alpha=alpha, layer_from_last=layer_extract
     ).to(model.device)
 
     # a minimal hook factory
@@ -96,8 +96,8 @@ def compute_proxy_coherence(model, tokenizer, steer_prompts,
 
         # steer once to get a sample continuation
         steering_vector = generate_steering_vector(
-            model, tokenizer, steer_dict,
-            alpha=alpha, layer_from_last=layer_extract
+            model, tokenizer, steer_dict,pos_alpha=alpha,
+            neg_alpha=alpha, layer_from_last=layer_extract
         ).to(model.device)
         def add_vec(module, inp, out):
             h, *r = out
@@ -170,8 +170,6 @@ def objective_coherence_maximization(trial):
 def objective_contrast_consistence(trial):
     pass
 
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--trials', type=int, default=50,
                     help='Number of Optuna trials')
@@ -180,17 +178,20 @@ args = parser.parse_args()
 
 torch.manual_seed(args.seed)
 
-steer_dict = {"I am very happy": 0.2, 
-              "I am happy in life!": 0.2,
-              "Life is amazing": 0.2,
-              "This is the best day ever": 0.2,
-              "I can't stop grinning": 0.2, # even though friend doesn't smile when happy :/
-              "I am very sad": -0.2,
-              "I feel really down right now": -0.2,
-              "Life is terrible": -0.2,
-              "This is the worst day ever": -0.2,
-              "I can't stop crying": -0.2
-              }
+# should try to have these be statements our bots actually say methinks
+
+steer_dict = {"I feel happy": 0.25, # just normalized these so alpha is within constant range for tuning
+              "I feel sad": -0.25,
+
+              "life is amazing": 0.25,
+              "life is terrible": -0.25,
+
+              "this was a great day": 0.25,
+              "this was a bad day": -0.25, 
+              
+              "great": 0.25,
+              "not good": -0.25,
+            }
 
 # ToDo: should I add [Riya] to the prompts? Since I'm trying to steer [Friend]? Can try if this fails
 

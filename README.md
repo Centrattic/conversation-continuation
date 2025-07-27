@@ -66,6 +66,8 @@ reduce the need for exploration and the total length of training during the seco
 1. Supervised Learning: I have our current model output completions, and then ask GPT 4o-mini to improve the completions based on the Consitution for each of us. Then I use the prompts and the revised completions to fine-tune the existing model LORAs. I evaluate outputs at this stage.
 2. Reward modeling: Then, now that the model is a bit better, I run sampling twice over many prompts (possibly the new prompts from friend and I's new data) and get data points (prompt, output1, output2). Then I have GPT 4o-mini choose the better output based on the constitution. I then train a preference model on the rated outputs. I evaluate this preference model to make sure its sane, and can properly score us.
 3. Reinforcement Learning: Finally 😭 I run PPO (an RL algorithm) against the preference model, improving the model from Step 1.
+* Okay so I currently have the revised completion extractor. So I either use prompts like test.json for right now to test pipeline (should not do this in long run, as doesn't enable getting more info, and for final bot I want to train on all relevant convos, in fact perhaps I should redo initial fine-tuning before RL (YES I SHOULD) since this would make RL much better). Something I need to add to it then is the option to already have the base_completions, and just extract these from looped convos or something--but this might be bad data. Perhaps it is good to regenerate the completions, idk add this as an option
+* So next thing to do then for tomorrow is to start new SFT process (this time monitor loss curve LMAO when you're doing this), then run the additional constitution SL loop (if friend reviews + approves constitution by then)
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -97,6 +99,24 @@ i don't know
 * Maybe something to do here is steer against actual phrases the friend-bot has said, like "not good" or "not much better" which come from our conversations
 * OMG! Some small evidence that contrast consistency holds?? Like if I negate alpha for the vector i got that was "sad-ish" friend now becomes happy! But super weird since my steering vector has - for sad directions and + for happy directions, so perhaps I messed up my sign somehwere -- this seems plausible, just can't see where here. CHECK THIS. Also maybe have separate coefficients for how much of positive vs. negative vectors to add in (like not just a single alpha, this seems maybe good to tune too). 
 * Just realized I have openAI API key, can use 4o-mini as an AI rater (will need to do this for RL) anyway
+* Suggestion from Gemini which I had kind of thought about earlier and makes a lot of sense actually:
+ > The solution is to give the model a cleaner, more targeted signal. Instead of broad emotional categories, use contrast pairs that are as similar as possible except for the one concept you want to steer. This minimizes the influence of correlated features."
+> 
+> steer_dict = {
+> 
+>    "Statement: Today was a good day.": 1.0,
+>    "Statement: Today was a bad day.": -1.0,
+>
+>    "His outlook is positive.": 1.0,
+>   "His outlook is negative.": -1.0,
+>
+>   "The feeling is joy.": 1.0,
+>    "The feeling is sadness.": -1.0,
+>}
+>
+> By making the contrast pairs almost identical, you force the resulting vector (v_good - v_bad) to be much more purely about the semantic difference between "good" and "bad," and less about intensity, syntax, or other noise. This should give you a more reliable steering vector that behaves as expected when you apply a positive or negative alpha.
+* Ok so just added the two alphas, going to run tuning again. This time I have clear contrast pairs, and I'm just starting by tuning the same alpha for both so I can actually run a controlled comparison here for clean contrast pairs vs. non-clean pairs. Also definitely add using 4o to rate coherence pretty soon.
+
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:
@@ -179,6 +199,7 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * TESTING 94 49 - the index is 94 but the length of the activations extracted for that is just 49 - clearly some bug here in the TDA code
 * what does torch manual seed do, should I be setting a manual seed or something for all sampling
 * not sure why I have a test set (test.json), I should clearly just lump all and train everything together.
+
 
 ## Future Ideas
 

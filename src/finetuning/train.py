@@ -4,7 +4,7 @@ from transformers.trainer import Trainer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 from peft import get_peft_model, LoraConfig, TaskType
-from config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
+from src.config import FRIEND_NAME, RIYA_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from datasets import load_dataset, DatasetDict
 from callbacks import SampleGenerationCallback, LiveJSONLogger
 import json

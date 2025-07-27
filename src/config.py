@@ -5,7 +5,7 @@ import pandas as pd
 # ToDo: Refactor to use pathlib
 
 DATA_PATH = "friend_hist.csv"
-friend_csv = pd.read_csv(DATA_PATH)
+# friend_csv = pd.read_csv(DATA_PATH) omg executes everything in here, bad
 
 FRIEND_ID = 547589426310676551
 RIYA_ID = 543198387860799498
@@ -18,7 +18,7 @@ RIYA_NAME = "Riya"
 # RIYA_NAME = friend_csv.loc[friend_csv['AuthorID'] == RIYA_ID]['Author'].iloc[0]
 
 MODEL_NAME = "mistralai/Mistral-7B-v0.1"
-RESULTS_FOLDER = "mistral-results"
+RESULTS_FOLDER = "mistral-results-7-6-25"
 
 CONVO_FOLDER = "convos"
 

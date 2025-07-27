@@ -34,6 +34,10 @@ Sampling:
 Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does-entropy-capture-that-variance-does-not
 
 
+### Engineering conventions
+
+* "_utils" files (+ config.py) are the only ones I import from -- thus don't need to worry about specifying what needs to run under __name__ = src.{whatever_path}. Other files interface with each other via writing to global files. 
+
 ## Version Notes
 
 ### Version 3: RLAIF time! (7/26/25)
@@ -68,6 +72,8 @@ reduce the need for exploration and the total length of training during the seco
 3. Reinforcement Learning: Finally 😭 I run PPO (an RL algorithm) against the preference model, improving the model from Step 1.
 * Okay so I currently have the revised completion extractor. So I either use prompts like test.json for right now to test pipeline (should not do this in long run, as doesn't enable getting more info, and for final bot I want to train on all relevant convos, in fact perhaps I should redo initial fine-tuning before RL (YES I SHOULD) since this would make RL much better). Something I need to add to it then is the option to already have the base_completions, and just extract these from looped convos or something--but this might be bad data. Perhaps it is good to regenerate the completions, idk add this as an option
 * So next thing to do then for tomorrow is to start new SFT process (this time monitor loss curve LMAO when you're doing this), then run the additional constitution SL loop (if friend reviews + approves constitution by then)
+* Ok so now that I'm finetuning again (and friend hasn't gotten back to me quite yet), I think there's things I want to do to improve the model cohesion. I think one good idea is train special tokens for speaker and mention attribution (first finetuning step). Like if I just have a mention token before every relevant pronoun, this should make the model much better at handling pronouns and stuff like this. I mean I wouldn't have to do that if I had 7T tokens, but I don't and I have noticed poor-ish attribution of pronouns here. But this way it will connect the cases where I refer to "you" (friend) and cases where my friend refers to themselves ("I"). And vice versa. This seems useful.
+* Weird idea: train probe on the speaker & personality mix
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -118,6 +124,7 @@ i don't know
 * Ok so just added the two alphas, going to run tuning again. This time I have clear contrast pairs, and I'm just starting by tuning the same alpha for both so I can actually run a controlled comparison here for clean contrast pairs vs. non-clean pairs. Also definitely add using 4o to rate coherence pretty soon.
 * So activations are definitely non deterministic, right, so I should defiintely as one form of getting norm difference, just like do the cross-entropy/KL divergence between logit distributions for steered and base for the next token (on temperature = 0 for determinstic). Oh actually activations over the prompt itself ARE determinstic (as long as I'm using model.eval() so dropout layers aren't active lol)
 * Okay wait also something to check and compare is where you're aplpying steering vector (prompt vs. output) for optimization vs. in actuality. For opt, you're just applying to the prompt and computing over that vs. in reality, you're applying to just output. You could tune on just output too by doing temp = 0 but more expensive, so just keep prompt for now (ideally if you find a good direction this really shouldnt matter)
+* Idea: contrast consistence. Like if switching to opposite dir doesn't have huge difference, you certainly just found a spurious correlation! (does this fully make sense?) Seems to have interesting results so far... one thing it certainly does is that super out of dist token outputs (like the random token ones) have MUCH lower diff scores than before (which is great), like 30-40 vs. like 200+. Ok the interesting stuff is that happy results seem to be shifted to Riya's bot (guessing direction more pronounced here) and not really Friend's which is why Friend sampler still seems mainly sad/or smt. I think what I have to do is, hmm im not really sure actually
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

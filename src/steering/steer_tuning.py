@@ -206,6 +206,8 @@ def objective_maximize_norm_plus_coherence(trial):
     # weight coherence ×10 just like before, so max 100 for both
     return min(norm_score, 100) + 10.0 * coh_score
 
+# technically contrast consistence is more like max diff is at the opposite directions
+# maybe compute grad of diff somehow with respect to direction and try to make sure its small?
 def objective_contrast_consistence(trial):
     # OMG. here just look for diff between positive and negative alpha applied.
     # Because for a spurious correlation I just did, the diff was like nothing bro.

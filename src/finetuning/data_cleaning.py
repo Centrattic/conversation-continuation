@@ -2,16 +2,23 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict
 import json
-from src.config import FRIEND_NAME
+from src.config import FRIEND_NAME, RIYA_NAME
 from tqdm import tqdm
 import random
 
-def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: int = 15):
+def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: int = 15, 
+                          exclude_strings=[]):
     df = pd.read_csv(path)
     df.columns = ["AuthorID", "Author", "Date", "Content", "Attachments", "Reactions"]
     df = df.dropna(subset=["Content"])  # remove empty messages
+
+    if exclude_strings:
+        # Use case-insensitive filtering; adjust flags if needed
+        for text in exclude_strings:
+            df = df[~df["Content"].str.contains(text, case=False, na=False)]
+
     df["Date"] = pd.to_datetime(df["Date"], format="ISO8601") # %y-%m-%dT%H:%M:%S.%f+%z
-    df = df.sort_values(by="Date")
+    df = df.sort_values(by="Date") # want to train on latest data earliest (some research has shown this is relevant)
 
     conversations = []
     buffer = []
@@ -24,7 +31,7 @@ def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: i
             if gap > max_gap_minutes:
                 buffer = []  # reset context due to large gap
 
-        speaker = "[Riya]" if current["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+        speaker = f"[{FRIEND_NAME}]" if current["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
         buffer.append(f"{speaker} {current['Content'].strip()}")
 
         if len(buffer) >= context_window + 1: # +1 for the response
@@ -35,7 +42,6 @@ def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: i
             conversations.append({"prompt": prompt, "response": target})
 
     return conversations
-
 
 def train_test_split(conversations: List[Dict], train_ratio=0.9, seed=42):
     random.seed(seed)
@@ -49,13 +55,12 @@ def save_json(data: List[Dict], path: str):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-if __name__=="__main__":
 
-    data = load_and_prepare_data("friend_hist.csv")
+data = load_and_prepare_data("friend_hist.csv")
 
-    train_data, test_data = train_test_split(data, train_ratio=0.9)
+# will mess with conversation starter tags
+exclude_strings = [f"[{FRIEND_NAME}]", f"[{RIYA_NAME}]"] 
 
-    save_json(train_data, "train.json")
-    save_json(test_data, "test.json")
+save_json(data, "train.json") # train on all
 
 

@@ -39,23 +39,8 @@ def sample_hyperparams(trial):
     alpha = trial.suggest_float('alpha', 0.7, 2.0)
     return layer_extract, layer_steer, alpha
 
-def generate_steering_hook(model, tokenizer, steer_dict,
-                           layer_steer, layer_extract, alpha):
-    steering_vector = generate_steering_vector(
-        model, tokenizer, steer_dict, pos_alpha=alpha,
-        neg_alpha=alpha, layer_from_last=layer_extract
-    ).to(model.device)
-
-    def add_vec(module, inp, out):
-        h, *r = out
-        return (h + steering_vector.to(h.device).to(h.dtype), *r)
-
-    hook = model.model.model.layers[layer_steer].register_forward_hook(add_vec)
-
-    return model, hook # hooked_model now
-
-def compute_norm_diff(base_model, hooked_model, tokenizer,
-                      steer_prompts, layer_steer):
+def compute_norm_diff(model, tokenizer, steer_prompts, 
+                      layer_steer, hook_func):
     
     diffs = []
     for prompt in steer_prompts:
@@ -64,12 +49,16 @@ def compute_norm_diff(base_model, hooked_model, tokenizer,
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
         prompt_len = inputs["input_ids"].size(1)
 
-        base_out = base_model(**inputs, output_hidden_states=True, return_dict=True)
-        base_hs  = base_out.hidden_states
+        hook = model.model.model.layers[layer_steer].register_forward_hook(hook_func)
 
         # steered forward
-        steer_out = hooked_model(**inputs, output_hidden_states=True, return_dict=True)
+        steer_out = model(**inputs, output_hidden_states=True, return_dict=True)
         steer_hs = steer_out.hidden_states
+
+        hook.remove()
+
+        base_out = model(**inputs, output_hidden_states=True, return_dict=True)
+        base_hs  = base_out.hidden_states
 
         # pull out the “downstream” layers
         total = len(base_hs) - 1
@@ -88,15 +77,18 @@ def compute_norm_diff(base_model, hooked_model, tokenizer,
 
     return sum(diffs) / len(diffs)
 
-def compute_proxy_coherence(hooked_model, tokenizer, steer_prompts):
+def compute_proxy_coherence(model, tokenizer, steer_prompts,
+                            layer_steer, hook_func):
     # (You could also generate and then score the generated text with a reference model.)
     total_score = 0.0
     for prompt in steer_prompts[:1]:  # just one prompt for speed
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
+        hook = model.model.model.layers[layer_steer].register_forward_hook(hook_func)
+
         # steer once to get a sample continuation
-        gen_ids = hooked_model.generate(
+        gen_ids = model.generate(
             **inputs, 
             do_sample=True, 
             max_new_tokens=50,
@@ -104,6 +96,8 @@ def compute_proxy_coherence(hooked_model, tokenizer, steer_prompts):
             top_p=0.95, 
             pad_token_id=tokenizer.eos_token_id
         )
+
+        hook.remove() # very cheap to do this
 
         out_text = tokenizer.decode(gen_ids[0]).replace(prompt, "").strip()
         out_text = out_text.replace("<s>", "")
@@ -116,48 +110,64 @@ def compute_proxy_coherence(hooked_model, tokenizer, steer_prompts):
 
     return int(total_score)
 
-
 def objective_maximize_norm(trial):
     layer_extract, layer_steer, alpha = sample_hyperparams(trial)
 
-    hooked_model, hook = generate_steering_hook(model, tokenizer, steer_dict,
-            layer_extract, layer_steer, alpha)
+    steering_vector = generate_steering_vector(
+        model, tokenizer, steer_dict, pos_alpha=alpha,
+        neg_alpha=alpha, layer_from_last=layer_extract
+    ).to(model.device)
 
-    diff_score = compute_norm_diff(model, hooked_model, tokenizer, 
-                                   steer_prompts, layer_steer)
+    def add_vec(module, inp, out):
+        h, *r = out
+        return (h + steering_vector.to(h.device).to(h.dtype), *r)
 
-    hook.remove()
+    diff_score = compute_norm_diff(model, tokenizer, steer_prompts, 
+                                   layer_steer, add_vec)
 
     return diff_score
 
 def objective_human_rating(trial):
     layer_extract, layer_steer, alpha = sample_hyperparams(trial)
     # here “human rating” is your proxy coherence
-    hooked_model, hook = generate_steering_hook(model, tokenizer, steer_dict,
-        layer_extract, layer_steer, alpha)
-    
-    coh_score = compute_proxy_coherence(hooked_model, tokenizer, steer_prompts)
-    
-    hook.remove()
+    steering_vector = generate_steering_vector(
+        model, tokenizer, steer_dict, pos_alpha=alpha,
+        neg_alpha=alpha, layer_from_last=layer_extract
+    ).to(model.device)
 
+    def add_vec(module, inp, out):
+        h, *r = out
+        return (h + steering_vector.to(h.device).to(h.dtype), *r)
+    
+    # hook not removed internally
+    coh_score = compute_proxy_coherence(
+        model, tokenizer, steer_prompts, layer_steer, add_vec
+    )
+    
     return coh_score
 
 def objective_maximize_norm_plus_coherence(trial):
     layer_extract, layer_steer, alpha = sample_hyperparams(trial)
 
-    hooked_model, hook = generate_steering_hook(model, tokenizer, steer_dict,
-        layer_extract, layer_steer, alpha)
+    # model is modified in place
+    steering_vector = generate_steering_vector(
+        model, tokenizer, steer_dict, pos_alpha=alpha,
+        neg_alpha=alpha, layer_from_last=layer_extract
+    ).to(model.device)
 
-    norm_score = compute_norm_diff(
-        model, hooked_model, tokenizer, steer_prompts,
-        layer_steer
-    )
-
+    def add_vec(module, inp, out):
+        h, *r = out
+        return (h + steering_vector.to(h.device).to(h.dtype), *r)
+    
     coh_score = compute_proxy_coherence(
-        hooked_model, tokenizer, steer_prompts
+        model, tokenizer, steer_prompts, layer_steer, add_vec
     )
-
-    hook.remove()
+    
+    norm_score = compute_norm_diff(
+        model, tokenizer, steer_prompts,
+        layer_steer, add_vec
+    )
+    
     # weight coherence ×10 just like before, so max 100 for both
     return min(norm_score, 100) + 10.0 * coh_score
 

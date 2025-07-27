@@ -40,7 +40,7 @@ def generate_with_activations(model, prompt:str, tokenizer, max_new_tokens=50):
     outputs = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
-        do_sample=True,
+        do_sample=True, # beam search
         temperature=0.7,
         top_p=0.95,
         top_k=0,

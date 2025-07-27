@@ -116,7 +116,8 @@ i don't know
 >
 > By making the contrast pairs almost identical, you force the resulting vector (v_good - v_bad) to be much more purely about the semantic difference between "good" and "bad," and less about intensity, syntax, or other noise. This should give you a more reliable steering vector that behaves as expected when you apply a positive or negative alpha.
 * Ok so just added the two alphas, going to run tuning again. This time I have clear contrast pairs, and I'm just starting by tuning the same alpha for both so I can actually run a controlled comparison here for clean contrast pairs vs. non-clean pairs. Also definitely add using 4o to rate coherence pretty soon.
-
+* So activations are definitely non deterministic, right, so I should defiintely as one form of getting norm difference, just like do the cross-entropy/KL divergence between logit distributions for steered and base for the next token (on temperature = 0 for determinstic). Oh actually activations over the prompt itself ARE determinstic (as long as I'm using model.eval() so dropout layers aren't active lol)
+* Okay wait also something to check and compare is where you're aplpying steering vector (prompt vs. output) for optimization vs. in actuality. For opt, you're just applying to the prompt and computing over that vs. in reality, you're applying to just output. You could tune on just output too by doing temp = 0 but more expensive, so just keep prompt for now (ideally if you find a good direction this really shouldnt matter)
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

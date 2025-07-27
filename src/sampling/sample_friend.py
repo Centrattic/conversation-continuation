@@ -53,19 +53,23 @@ lora_model.eval()
 
 # single token steering probably does better ?
 if steer:
-    layer_extract = -23 # layers range from -33 to -1 for extraction, going for output
-    layer_steer = -11 # layers range from -32 to -1, going for input
-    alpha = 1.954085
+    layer_extract = -2 # layers range from -33 to -1 for extraction, going for output
+    layer_steer = -2 # layers range from -32 to -1, going for input
+    alpha = -4.84175
 
-    steer_dict = {"I feel happy": 0.25, 
-              "I feel sad": -0.25,
+    steer_dict = {"i feel happy": 0.25, 
+              "i feel sad": -0.25,
+
               "life is amazing": 0.25,
               "life is terrible": -0.25,
+
               "this was a great day": 0.25,
               "this was a bad day": -0.25, 
-              "great": 0.25,
-              "not good": -0.25,
+              
+              "amazing": 0.25,
+              "not bad": -0.25,
             }
+
 
     steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, pos_alpha=alpha,
                                                neg_alpha=alpha, layer_from_last=layer_extract)

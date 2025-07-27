@@ -63,9 +63,9 @@ reduce the need for exploration and the total length of training during the seco
 - My goal is really to be as authentic with regards to Friend and I as possible, while kind of augmenting our conversations (would be really cool if bot talks about smt we later talk about or like stuff we would enjoy talking about and such)
 - Just did some test examples of asking Gemini to make COT - damn this actually I think works surprisingly well!! Ohmigod, I ask it to make COT referencing the constitution and this is good! 
 * OK! Here's the RL Plan:
-1. I have our current model output completions, and then ask GPT 4o-mini to improve the completions based on the Consitution for each of us. Then I use the prompts and the revised completions to fine-tune the existing model LORAs. I evaluate outputs at this stage.
-2. Then, now that the model is a bit better, I run sampling twice over many prompts (possibly the new prompts from friend and I's new data) and get data points (prompt, output1, output2). Then I have GPT 4o-mini choose the better output based on the constitution. I then train a preference model on the rated outputs. I evaluate this preference model to make sure its sane, and can properly score us.
-3. Finally 😭 I run PPO (an RL algorithm) against the preference model, improving the model from Step 1.
+1. Supervised Learning: I have our current model output completions, and then ask GPT 4o-mini to improve the completions based on the Consitution for each of us. Then I use the prompts and the revised completions to fine-tune the existing model LORAs. I evaluate outputs at this stage.
+2. Reward modeling: Then, now that the model is a bit better, I run sampling twice over many prompts (possibly the new prompts from friend and I's new data) and get data points (prompt, output1, output2). Then I have GPT 4o-mini choose the better output based on the constitution. I then train a preference model on the rated outputs. I evaluate this preference model to make sure its sane, and can properly score us.
+3. Reinforcement Learning: Finally 😭 I run PPO (an RL algorithm) against the preference model, improving the model from Step 1.
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -178,6 +178,7 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * ooh helpful: https://www.w3schools.com/python/python_datetime.asp
 * TESTING 94 49 - the index is 94 but the length of the activations extracted for that is just 49 - clearly some bug here in the TDA code
 * what does torch manual seed do, should I be setting a manual seed or something for all sampling
+* not sure why I have a test set (test.json), I should clearly just lump all and train everything together.
 
 ## Future Ideas
 

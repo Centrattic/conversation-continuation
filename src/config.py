@@ -10,8 +10,14 @@ DATA_PATH = "friend_hist.csv"
 FRIEND_ID = 547589426310676551
 RIYA_ID = 543198387860799498
 
-FRIEND_NAME = "Owen"
 RIYA_NAME = "Riya"
+FRIEND_NAME = "Owen"
+
+RIYA_SPEAKER_TOKEN = f"[{RIYA_NAME}]"
+FRIEND_SPEAKER_TOKEN = f"[{FRIEND_NAME}]"
+
+RIYA_MENTION_TOKEN = f"<m:{RIYA_NAME}>"
+FRIEND_MENTION_TOKEN = f"<m:{FRIEND_NAME}>"
 
 # Use Discord names in next training run. For now, you have hardcoded ones.
 # FRIEND_NAME = friend_csv.loc[friend_csv['AuthorID'] == FRIEND_ID]['Author'].iloc[0]

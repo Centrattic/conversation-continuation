@@ -16,6 +16,7 @@ from src.model_utils import generate, generate_with_activations, generate_with_s
 from src.logger import ConversationLogger
 from src.activation_tda.tda_utils import find_topk_train_samples, SingleLayerActivationCache, aggregate_activations
 from src.steering.steer_utils import generate_steering_vector
+from src.data_utils import clean_for_sampling
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tda', action='store_true')
@@ -109,9 +110,8 @@ while(1):
     if index == -1: # all tokens outputted without [Riya] token
         index = len(lora_out)
     lora_out = lora_out[:index]
-    # removing start and end tokens
-    lora_out = lora_out.replace("<s>", "")
-    lora_out = lora_out.replace("</s>", "")
+    # Clean the output for better display
+    lora_out = clean_for_sampling(lora_out)
     history.append(lora_out) # lora_out shouldn't have friend name
     hist_count += 1
 

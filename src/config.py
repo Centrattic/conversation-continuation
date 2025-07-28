@@ -4,7 +4,7 @@ import pandas as pd
 
 # ToDo: Refactor to use pathlib
 
-DATA_PATH = "friend_hist.csv"
+DATA_PATH = "data/finetune_7_27_25/"
 # friend_csv = pd.read_csv(DATA_PATH) omg executes everything in here, bad
 
 FRIEND_ID = 547589426310676551
@@ -24,7 +24,8 @@ FRIEND_MENTION_TOKEN = f"<m:{FRIEND_NAME}>"
 # RIYA_NAME = friend_csv.loc[friend_csv['AuthorID'] == RIYA_ID]['Author'].iloc[0]
 
 MODEL_NAME = "mistralai/Mistral-7B-v0.1"
-RESULTS_FOLDER = "mistral-results-7-6-25"
+RESULTS_FOLDER = "mistral-results-7-27-25"
+OLD_RESULTS_FOLDER = "mistral-results-7-6-25"
 
 CONVO_FOLDER = "convos"
 

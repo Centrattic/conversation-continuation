@@ -2,7 +2,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict
 import json
-from src.config import FRIEND_NAME, RIYA_NAME
+from src.config import FRIEND_NAME, RIYA_NAME, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, DATA_PATH
 from tqdm import tqdm
 import random
 
@@ -56,11 +56,11 @@ def save_json(data: List[Dict], path: str):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-data = load_and_prepare_data("friend_hist.csv")
+data = load_and_prepare_data(f"{DATA_PATH}/friend_hist_new.csv")
 
 # will mess with conversation starter tags
-exclude_strings = [f"[{FRIEND_NAME}]", f"[{RIYA_NAME}]"] 
+exclude_strings = [RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN] 
 
-save_json(data, "train.json") # train on all
+save_json(data, f"{DATA_PATH}/train.json") # train on all, no splits
 
 

@@ -74,7 +74,11 @@ reduce the need for exploration and the total length of training during the seco
 * So next thing to do then for tomorrow is to start new SFT process (this time monitor loss curve LMAO when you're doing this), then run the additional constitution SL loop (if friend reviews + approves constitution by then)
 * Ok so now that I'm finetuning again (and friend hasn't gotten back to me quite yet), I think there's things I want to do to improve the model cohesion. I think one good idea is train special tokens for speaker and mention attribution (first finetuning step). Like if I just have a mention token before every relevant pronoun, this should make the model much better at handling pronouns and stuff like this. I mean I wouldn't have to do that if I had 7T tokens, but I don't and I have noticed poor-ish attribution of pronouns here. But this way it will connect the cases where I refer to "you" (friend) and cases where my friend refers to themselves ("I"). And vice versa. This seems useful.
 - The idea is that models are much better at the simpler induction head circuits (2 layers) vs. retrieval + copy + composition head, which requires like 4 layers ish idk. Adding the mention token flattens the required reasoning so I expect this to be better and I can just handle more complex interactions.
-* Weird idea: train probe on the speaker & personality mix
+* Weird idea: train probe on the speaker (Friend vs. Riya) and then steer the direction to do some personality mixing
+- Ok so I've not really been cooking here. I think for fun/learning, I want to try training on speaker tokens but not mention tokens for now, since there are actually are soo many mentions of i/you already, this should be learnable ig I like the logic of making it easier to learn (induction head vs. 4-5 layers) but whatever. Maybe I should try complex rejex for mention tokens for other people - that could increase coherence. Also I think mention matching is a bit cursed, and I'd want to do lots of tests for it - so should build this out later.
+* Ok. so currently training LORA a bit more + adding embedding training. One thing here is that if you do more LORA training + you do the first SL step with the constitution and you still don't think the model is good enough for RL by itself, you can try improving by training a higher rank LORA. The thing is you can sometimes see the model overfitting (not really, just strong TDA with some conversations), so that's something to consider. Lemme actually make list of improvements given model isn't good enough for RL:
+- higher rank LORA
+- LORA with bias = "all"
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -208,7 +212,9 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * TESTING 94 49 - the index is 94 but the length of the activations extracted for that is just 49 - clearly some bug here in the TDA code
 * what does torch manual seed do, should I be setting a manual seed or something for all sampling
 * not sure why I have a test set (test.json), I should clearly just lump all and train everything together.
-
+* some places you use Path (from pathlib), other places you use f"" formatted strings. Just use Path everywhere or something loll
+* BRUH DID NOT REALIZE "longest" padding existed !! SOB
+* ** handle results folders way better (currently you're doing it in very ugly ways) **
 
 ## Future Ideas
 

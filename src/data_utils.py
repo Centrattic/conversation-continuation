@@ -88,9 +88,8 @@ def get_speaker_mention_tokens() -> List[str]:
         FRIEND_MENTION_TOKEN
     ]
 
-
 def get_speaker_tokens() -> List[str]:
-    """ Get list of speaker tokens for training (no mention tokens for now). """
+    """ Get list of speaker tokens for training. """
     return [
         RIYA_SPEAKER_TOKEN,
         FRIEND_SPEAKER_TOKEN

@@ -91,6 +91,10 @@ trainer = Trainer(
     train_dataset=tokenized_dataset["train"],
     eval_dataset=None,
     data_collator=data_collator,
+    callbacks=[
+        SampleGenerationCallback(tokenizer, log_path = f"{RESULTS_FOLDER}/mid_completions.json", test_data_path = "test.json", every_n_steps=500),
+        LiveJSONLogger(log_path=f"{RESULTS_FOLDER}/log.json")
+    ],
 )
 
 print("Starting special token training...")

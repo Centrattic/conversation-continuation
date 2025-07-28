@@ -3,7 +3,7 @@ from transformers.training_args import TrainingArguments
 from transformers.trainer import Trainer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from peft import get_peft_model, LoraConfig, TaskType, PeftModel
+from peft import get_peft_model, LoraConfig, TaskType, PeftModel, prepare_model_for_kbit_training
 from src.config import FRIEND_NAME, RIYA_NAME, MODEL_NAME, RESULTS_FOLDER, DATA_PATH, bnb_config
 from src.data_utils import get_speaker_tokens, strip_training_data
 from datasets import load_dataset, DatasetDict
@@ -18,6 +18,8 @@ assert(torch.cuda.is_available())
 torch.cuda.empty_cache()
 torch.cuda.ipc_collect() # in case restart training
 
+device = 'cuda:0'  # auto fails cause data tensor on multiple devices
+
 # parse command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('-st', '--special-tokens', action='store_true', help='Load from special token embeddings')
@@ -25,47 +27,69 @@ parser.add_argument('-ct', '--continue-training', action='store_true', help='Con
 args = parser.parse_args()
 
 # load model and tokenizer based on flags
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 if args.special_tokens:
-    special_tokens_path = Path(f"./{RESULTS_FOLDER}/special_embedding_train/emb_adapter")
-    if special_tokens_path.exists():
-        print(f"Loading from special tokens checkpoint: {special_tokens_path}")
-        tokenizer = AutoTokenizer.from_pretrained(special_tokens_path)
-        model = AutoModelForCausalLM.from_pretrained(special_tokens_path, device_map="auto", quantization_config=bnb_config)
-    else:
-        raise ValueError("Special tokens checkpoint not found")
-else:
-    print("Loading base model without special tokens")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    special_tokens = get_speaker_tokens()
+    tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto", quantization_config=bnb_config)
-
-# handle lora adapter based on continue flag
-if args.continue_training:
-    # load existing
-    existing_lora_path = Path(f"./{OLD_RESULTS_FOLDER}/lora_adapter")
-    if existing_lora_path.exists():
-        print(f"Loading existing LoRA adapter from: {existing_lora_path}")
-        model = PeftModel.from_pretrained(model, existing_lora_path)
-    else:
-        raise ValueError("LoRA adapter not found")
 else:
-    # create new adapter
-    lora_config = LoraConfig(
-        r=8,
+    special_tokens = []
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    quantization_config=bnb_config,
+    device_map=device
+)
+
+model.resize_token_embeddings(len(tokenizer))
+
+# enable k-bit gradient adapters
+model = prepare_model_for_kbit_training(model)
+
+# handle continuation of training
+adapter_dir = Path(f"./{RESULTS_FOLDER}/lora_adapter")
+if args.continue_training and adapter_dir.exists():
+    print(f"Continuing LoRA from {adapter_dir}")
+    model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=True)
+else:
+    print("Starting new LoRA adapter")
+    # include embed_tokens and lm_head if special_tokens
+    targets = ['q_proj', 'v_proj']
+    if args.special_tokens:
+        targets = ['embed_tokens', 'lm_head'] + targets
+    lora_conf = LoraConfig(
+        r=12, # some more complexity
         lora_alpha=16,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.01, # smaller dropout, not as worried about overfitting (though I did see some, so careful)
-        bias="none",
+        target_modules=targets,
+        lora_dropout=0.05, # smaller dropout, not as worried about overfitting (though I did see some, so careful)
+        bias='all',
         task_type=TaskType.CAUSAL_LM,
     )
-    model = get_peft_model(model, lora_config)
+    model = get_peft_model(model, lora_conf)
 
+# initialize special token embeddings to be similar to existing ones
+if args.special_tokens:
+    emb = model.get_input_embeddings()
+    with torch.no_grad():
+        mapping = {
+            special_tokens[0]: ["ri", "ya", "_R"],
+            special_tokens[1]: ["▁Owen"] # that is NOT an _ it's the space
+        }
+        for tok, refs in mapping.items():
+            tid = tokenizer.convert_tokens_to_ids(tok)
+            ref_ids = tokenizer.convert_tokens_to_ids(refs)
+            ref_ids = [i for i in ref_ids if i != tokenizer.unk_token_id]
+            if not ref_ids:
+                print(f"No valid refs for {tok}")
+                continue
+            mean_vec = emb.weight[ref_ids].mean(0)
+            emb.weight[tid] = mean_vec + torch.randn_like(mean_vec) * 0.01
+
+# load dataset
 dataset = DatasetDict({
     "train": load_dataset("json", data_files=f"{DATA_PATH}/train.json", split="train"),
-    # "test": load_dataset("json", data_files="test.json", split="train"), # only train split in test
 })
-
-processed_dataset = dataset.map(strip_training_data, remove_columns=["prompt", "response"])
 
 # tokenize data
 def tokenize(example):
@@ -73,25 +97,18 @@ def tokenize(example):
     tokenized = tokenizer(full_text, 
                           truncation=True, 
                           padding=False)
-    # tokenized["labels"] = tokenized["input_ids"].copy() # for Causal LM, predicting same as input, just shifted
     return tokenized
 
-tokenized_dataset = processed_dataset.map(tokenize, remove_columns = ["prompt", "response"])
+tokenized_dataset = dataset.map(tokenize, remove_columns = ["prompt", "response"])
 
-# set output directory based on flags
-
-# hmm perhaps have same directory for both? And just add epoch number to checkpoint. Ahh idk. new directory for now, not sure
-# if epoch number will continue from prev
-if args.continue_training:
-    output_dir = Path(f"./{RESULTS_FOLDER}/lora_continued") 
-else:
-    output_dir = Path(f"./{RESULTS_FOLDER}/lora_train")
+# training args + specifications
+output_dir = Path(f"./{RESULTS_FOLDER}/lora_train")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 training_args = TrainingArguments(
     output_dir=output_dir,
     per_device_train_batch_size=4,          
-    num_train_epochs=3,
+    num_train_epochs=4,
     learning_rate=2e-4,
     warmup_steps=200,
     lr_scheduler_type="linear",
@@ -99,8 +116,6 @@ training_args = TrainingArguments(
     logging_steps=50, # calls log callback on log
     save_strategy="steps",
     save_steps=1500,
-    # save_total_limit=3,  # optionally keep only last 2 checkpoints - yes, dont waste too much space
-    # logging_dir=f"./{RESULTS_FOLDER}/logs",
     report_to="none",                       
 )
 
@@ -123,13 +138,15 @@ trainer = Trainer( # uses cross entropy
     ],
 )
 
-# Print training mode
 if args.continue_training:
     print("Continuing LoRA training...")
+    trainer.train(resume_from_checkpoint=output_dir / "lora_adapter")
 else:
     print("Starting new LoRA training...")
+    trainer.train()
 
-trainer.train() # starting with old LORA waits but new training so LR is better
+# saving outputs
+# ToDo: add option to not rewrite old lora adapters if continuing or smt
 
 model.save_pretrained(output_dir / "lora_adapter")
 tokenizer.save_pretrained(output_dir / "lora_adapter")

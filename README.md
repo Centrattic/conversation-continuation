@@ -79,11 +79,17 @@ reduce the need for exploration and the total length of training during the seco
 * Ok. so currently training LORA a bit more + adding embedding training. One thing here is that if you do more LORA training + you do the first SL step with the constitution and you still don't think the model is good enough for RL by itself, you can try improving by training a higher rank LORA. The thing is you can sometimes see the model overfitting (not really, just strong TDA with some conversations), so that's something to consider. Lemme actually make list of improvements given model isn't good enough for RL:
 - higher rank LORA
 - LORA with bias = "all"
-- maybe not that relevant but future version could train on dates! Pretty sure I have enough samples for this, and so model gets the sense/can memorize who we are and stuff.
+- maybe not that relevant but future version could train on dates! Pretty sure I have enough samples for this, and so model gets the sense/can memorize who we are and changes over time.
 - consider varying context window between like 4 and 12 or something, shorter context might be better actually to get used to less info (this is something easy to play with I should test in sampling and training both)
 - also consider switching from truncation to chunking
 * Ok so first training run I had 10804 samples (around this) and now I have 15772 samples! (Removed train test split, plus have new messages!)
 * Ok so special token embedding trains full embedding layer (can't just train some unless I add a gradient hook to zero out other gradients (but still must do expensive work of computing)). Training only embeddings shooould work fine I think - let's hope.
+* Special tokens training debugging the Nan gradient issue (what is causing this?)
+- Figure out the issue! It's because I'm using QLORA (quantizing base model and training adaptor on top). I can't trian the speaker embeddings sicne they're quantized! What I caan do though, is dequantize just the embedding layer to train this. Why can't I fine-tune purely quantized models ? (Not enough preicison for grads/grads will not be continuous I think since I did 4-bit quantization loll to make faster, I think the issue is this)
+- ok dequantization does seem more cursed, also will have to replace always. Let me just add LORA on embedding matrix (resized embed matrix ofc)
+- ah bcoz i cant train quantized base model unless i de-quantize. using LORAs is fine, this just also makes it much faster to talk to bot, which is important
+- https://huggingface.co/docs/peft/en/developer_guides/troubleshooting
+- realized I can just train one adaptor. I'm stupid ahhh
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -220,6 +226,9 @@ Thoughts: so when the forever_conversation just converges, what's usually happen
 * some places you use Path (from pathlib), other places you use f"" formatted strings. Just use Path everywhere or something loll
 * BRUH DID NOT REALIZE "longest" padding existed !! SOB
 * ** handle results folders way better (currently you're doing it in very ugly ways) ** - the way I think maybe to manage is always have a reference to latest lora that gets updated, and then like old folders whatever, nah should have overall results and not have to update config but I dont train very often anyway so ahhh
+* Figure out how to calculate how much compute you need for things
+* add continue flag for special token training (now that you're using lora for special token training)
+
 
 ## Future Ideas
 

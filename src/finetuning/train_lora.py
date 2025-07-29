@@ -25,6 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-st', '--special-tokens', action='store_true', help='Load from special token embeddings')
 parser.add_argument('-ct', '--continue-training', action='store_true', help='Continue training existing LoRA adapter')
 args = parser.parse_args()
+# if continuing, special tokens flag must be on since we trained on that
 
 # load model and tokenizer based on flags
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -49,7 +50,7 @@ model = prepare_model_for_kbit_training(model)
 
 # handle continuation of training
 adapter_dir = Path(f"./{RESULTS_FOLDER}/lora_adapter")
-if args.continue_training and adapter_dir.exists():
+if args.continue_training and adapter_dir.exists(): 
     print(f"Continuing LoRA from {adapter_dir}")
     model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=True)
 else:
@@ -64,7 +65,7 @@ else:
         target_modules=targets,
         lora_dropout=0.05, # smaller dropout, not as worried about overfitting (though I did see some, so careful)
         bias='all',
-        task_type=TaskType.CAUSAL_LM,
+        task_type=TaskType.CAUSAL_LM, # infers additional modules to save
     )
     model = get_peft_model(model, lora_conf)
 
@@ -108,7 +109,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 training_args = TrainingArguments(
     output_dir=output_dir,
     per_device_train_batch_size=4,          
-    num_train_epochs=4,
+    num_train_epochs=6,
     learning_rate=2e-4,
     warmup_steps=200,
     lr_scheduler_type="linear",
@@ -138,7 +139,8 @@ trainer = Trainer( # uses cross entropy
     ],
 )
 
-if args.continue_training:
+# ToDo: continue training rewrites log.json, and mid_completions.json, fix this (append vs. rewrite)
+if args.continue_training: 
     print("Continuing LoRA training...")
     trainer.train(resume_from_checkpoint=output_dir / "lora_adapter")
 else:
@@ -150,7 +152,7 @@ else:
 
 model.save_pretrained(output_dir / "lora_adapter")
 tokenizer.save_pretrained(output_dir / "lora_adapter")
-trainer.save_state()
+trainer.save_state() # annoying it won't get saved in lora_adapter, fix :(, have to move it manually
 
 print(f"LORA training complete. Model saved to {output_dir}")
 

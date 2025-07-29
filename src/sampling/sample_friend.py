@@ -36,14 +36,23 @@ else:
     logger = ConversationLogger() # logger outputs just print to console
 
 base_model_name = Path(f"{MODEL_NAME}")
-adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")
+adapter_path = Path(f"./{RESULTS_FOLDER}/lora_train/lora_adapter")
 max_new_tokens = 90
 
-tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+# load tokenizer as well since we added special tokens
+tokenizer = AutoTokenizer.from_pretrained(adapter_path)
 tokenizer.pad_token = tokenizer.eos_token
 
 logger.log_to_all("Loading models")
 base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="auto",quantization_config=bnb_config)
+
+# resize model vocabulary to match tokenizer
+vocab_size = len(tokenizer)
+if base_model.get_input_embeddings().num_embeddings != vocab_size:
+    logger.log_to_all(f"Resizing model vocabulary from {base_model.get_input_embeddings().num_embeddings} to {vocab_size}")
+    base_model.resize_token_embeddings(vocab_size, mean_resizing=False)
+    # if embeddings don't load properly, we'll know because they'll be super OOD 
+
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
@@ -56,7 +65,7 @@ lora_model.eval()
 if steer:
     layer_extract = -2 # layers range from -33 to -1 for extraction, going for output
     layer_steer = -2 # layers range from -32 to -1, going for input
-    alpha = -4.84175
+    alpha = 4.84175
 
     steer_dict = {"i feel happy": 0.25, 
               "i feel sad": -0.25,

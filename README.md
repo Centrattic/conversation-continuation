@@ -79,7 +79,7 @@ reduce the need for exploration and the total length of training during the seco
 * Ok. so currently training LORA a bit more + adding embedding training. One thing here is that if you do more LORA training + you do the first SL step with the constitution and you still don't think the model is good enough for RL by itself, you can try improving by training a higher rank LORA. The thing is you can sometimes see the model overfitting (not really, just strong TDA with some conversations), so that's something to consider. Lemme actually make list of improvements given model isn't good enough for RL:
 - higher rank LORA
 - LORA with bias = "all"
-- maybe not that relevant but future version could train on dates! Pretty sure I have enough samples for this, and so model gets the sense/can memorize who we are and changes over time.
+- maybe not that relevant but future version could train on dates (add <date> tags or something)! Pretty sure I have enough samples for this, and so model gets the sense/can memorize who we are and changes over time.
 - consider varying context window between like 4 and 12 or something, shorter context might be better actually to get used to less info (this is something easy to play with I should test in sampling and training both)
 - also consider switching from truncation to chunking
 * Ok so first training run I had 10804 samples (around this) and now I have 15772 samples! (Removed train test split, plus have new messages!)
@@ -90,6 +90,15 @@ reduce the need for exploration and the total length of training during the seco
 - ah bcoz i cant train quantized base model unless i de-quantize. using LORAs is fine, this just also makes it much faster to talk to bot, which is important
 - https://huggingface.co/docs/peft/en/developer_guides/troubleshooting
 - realized I can just train one adaptor. I'm stupid ahhh
+* Okay now I'm retraining adaptor with new special tokens --> off the bat we see MUCH higher grad norms, just because updating embeddings
+* **SUPER INTERESTING IDEA: try finetuning with Harmonic loss/other losses but harmonic would be sooo cool! See if we can get more interpretable steering! Like if steering just works better after this or something, implying clearer directions somehow. Hehe support results for ur paper. **
+* TRY ABLATING DIRECTIONS WITH FRIEND BOT
+* TRAIN SAEs with FRIEND BOT
+* one thing that would be cool to evaluate how training is going, is to look at PCA of various concepts (needs labels for data), like lots of binary labels, and see what can be best separated 
+- how to find the directions along which we want to separate, we could just do activation comparison from same layer with steering vector for every input data (since we dont have supervised labels), and then project along this vector and orthogonal, and see how well this vector separates?? NO THIS IS BAD because we don't know that new learning is clear direction. I think the way we have to do this is just see if steering vectors work better at separating (or I have to put in some effort to get supervised labels). Or just like train SAEs on the model! This seems really interesting, definitely want to train SAEs on Friend-bot soon, and can compare RL vs. SL vs. etc. whatever.
+* ** I NEED SOME WAY OF EVALUATING FOR MYSELF THAT A MODEL IS GOOD ENOUGH FOR RL **
+* Switch to llama-3-8b. Apparently steering is good on this?? According to friend. Or gemma or deepseek MOEs or something. Try qwen possibly too
+* Make context as long as possible, you can do more than 8. Mistral 2048 max is tooo small. This will make even better (friend says so)
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -141,6 +150,11 @@ i don't know
 * So activations are definitely non deterministic, right, so I should defiintely as one form of getting norm difference, just like do the cross-entropy/KL divergence between logit distributions for steered and base for the next token (on temperature = 0 for determinstic). Oh actually activations over the prompt itself ARE determinstic (as long as I'm using model.eval() so dropout layers aren't active lol)
 * Okay wait also something to check and compare is where you're aplpying steering vector (prompt vs. output) for optimization vs. in actuality. For opt, you're just applying to the prompt and computing over that vs. in reality, you're applying to just output. You could tune on just output too by doing temp = 0 but more expensive, so just keep prompt for now (ideally if you find a good direction this really shouldnt matter)
 * Idea: contrast consistence. Like if switching to opposite dir doesn't have huge difference, you certainly just found a spurious correlation! (does this fully make sense?) Seems to have interesting results so far... one thing it certainly does is that super out of dist token outputs (like the random token ones) have MUCH lower diff scores than before (which is great), like 30-40 vs. like 200+. Ok the interesting stuff is that happy results seem to be shifted to Riya's bot (guessing direction more pronounced here) and not really Friend's which is why Friend sampler still seems mainly sad/or smt. I think what I have to do is, hmm im not really sure actually
+* Interesting: steering on different tokens particularly (not aggregating over mean, choosing tokens) led to orthogonal vectors for friend replicating refusal paper! Like how did choosing different tokens lead to orthogonal steering vectors? Should we have different, uhh no this should be same as subtracting across?
+* This leads to better steering - find orthogonal steering vectors.
+* Idea: optimize in optuna algorithm for higher slope vectors. Don't optimize over alpha as param, just over layers and find the best by looking for highest slope for sigmoid found + coherence ofc (look at slope of activations changing at layer you care about), doing stable region plateaus
+* Something to do when looking at activations: check RELU activations! Just looking at RELU activation statistics constructs subspace the best
+* Idea: add steering vector at every layer.
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:
@@ -244,6 +258,12 @@ Ok, despite this, future ideas:
 5. Another steering idea. First thing, maybe if I want to character train, I should simulate myself since I have the most data about myself (but this is kind of boring and less fun and i can always do this later if I have a good simulate other pipeline ig). But now imagine I simulate friend but don't train on much data outside of our conversation history -- and a mutual friend mentioned every so often wants to talk to friend. Then, what I can do is make a dataset from our real data, or simulated conversations where mutual friend is mentioned/discussed, the idea is that their values are somewhat modeled (or if I have a Consitution for friend + RL time, this instead is ideal), and then train a "mutual friend" probe on activations on that data. Then from that probe, I can get a direction for that "mutual friend" and steer in that direction.
 - my hypothesis: best for simulating person is Constitution + finetune text messages. second best is finetune for tone, Constitution for values
 - another idea: finetune base model on conversation history. Then RL for one actor or another for values? I can also extract server data so maybe more data about someone (should ofc get consent for any data extracted)
+* TRY ABLATING DIRECTIONS WITH FRIEND BOT
+* TRAIN SAEs with FRIEND BOT
+* Good plots to make
+- project data onto probe/any direction + orthogonal direction & visualize separator
+
+
 
 ## Lessons
 - sanity checking is super valuable. run small sanity checks on everything first before the expensive stuff if you're worried.

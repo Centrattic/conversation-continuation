@@ -99,6 +99,8 @@ reduce the need for exploration and the total length of training during the seco
 * ** I NEED SOME WAY OF EVALUATING FOR MYSELF THAT A MODEL IS GOOD ENOUGH FOR RL **
 * Switch to llama-3-8b. Apparently steering is good on this?? According to friend. Or gemma or deepseek MOEs or something. Try qwen possibly too
 * Make context as long as possible, you can do more than 8. Mistral 2048 max is tooo small. This will make even better (friend says so)
+* Rud. said something he's trying is RL with ground truth as well, and then modified ground truth --> wonder if this is closer to SL or something, the goal is to bring out the capability of the model but this is much less obvious than like 
+the helpful vs. harmful case
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -155,6 +157,8 @@ i don't know
 * Idea: optimize in optuna algorithm for higher slope vectors. Don't optimize over alpha as param, just over layers and find the best by looking for highest slope for sigmoid found + coherence ofc (look at slope of activations changing at layer you care about), doing stable region plateaus
 * Something to do when looking at activations: check RELU activations! Just looking at RELU activation statistics constructs subspace the best
 * Idea: add steering vector at every layer.
+* Really cool paper to check out here from Dimi, has some awesome optimizations! https://arxiv.org/pdf/2505.22637
+
 
 ### Version 2: I'm adding TDA + Steering! (7/18/25)
 Ideas:

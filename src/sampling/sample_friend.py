@@ -11,7 +11,7 @@ import argparse
 from datetime import datetime
 import json
 
-from src.config import FRIEND_ID, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
+from src.config import FRIEND_ID, OLD_RESULTS_FOLDER, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
 from src.model_utils import generate, generate_with_activations, generate_with_steering
 from src.logger import ConversationLogger
 from src.activation_tda.tda_utils import find_topk_train_samples, SingleLayerActivationCache, aggregate_activations
@@ -39,7 +39,7 @@ base_model_name = Path(f"{MODEL_NAME}")
 adapter_path = Path(f"./{RESULTS_FOLDER}/lora_train/lora_adapter")
 max_new_tokens = 90
 
-# load tokenizer as well since we added special tokens
+# load new tokenizer, same if we didn't add new tokens, else different
 tokenizer = AutoTokenizer.from_pretrained(adapter_path)
 tokenizer.pad_token = tokenizer.eos_token
 

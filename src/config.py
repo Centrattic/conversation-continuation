@@ -29,6 +29,7 @@ RESULTS_FOLDER = "mistral-results-7-27-25"
 OLD_RESULTS_FOLDER = "mistral-results-7-6-25"
 
 CONVO_FOLDER = "convos"
+VIZ_FOLDER = "visualizations"
 
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,

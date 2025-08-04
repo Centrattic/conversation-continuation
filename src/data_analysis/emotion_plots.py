@@ -93,6 +93,11 @@ def get_static_embeddings(model, words):
     return emb_matrix[ids].cpu().numpy()
 
 # contextual activations for "i feel {emo}" templates
+
+""" TBH, it would be super interesting to compare this to how Friend feels in 
+other conversations to see how emotional expression is different
+"""
+
 def get_contextual_embeddings(model, words, speaker):
     if speaker:
         texts = [f"[{speaker}] i feel {w}" for w in words]
@@ -154,9 +159,6 @@ plot_cosine_diff_heatmap(
     title = f'Δ Cosine Similarity ({FRIEND_NAME} – Base)'
 )
 
-# wow the heatmaps are way more interesting/siginificant when I subtract out the finetune, seems like
-# I have to account for finetune vector shifts as being very significant.
-
 plot_cosine_diff_heatmap(
     base_acts = together_fin,
     fin_acts = context_fin_riya,
@@ -172,5 +174,17 @@ plot_cosine_diff_heatmap(
     save_path = os.path.join(VIZ_FOLDER, 'heatmap_cosine_diff_together.png'),
     title = f'Δ Cosine Similarity (Us Together – Base)'
 )
+
+plot_cosine_diff_heatmap(
+    base_acts = context_fin_friend,
+    fin_acts = context_fin_riya,
+    labels = emotions,
+    save_path = os.path.join(VIZ_FOLDER, f'heatmap_cosine_diff_friend_diffs.png'),
+    title = f'Δ Cosine Similarity ({RIYA_NAME} – {FRIEND_NAME})'
+)
+
+# wow the heatmaps are way more interesting/siginificant when I subtract out the finetune, seems like
+# I have to account for finetune vector shifts as being very significant.
+
 
 print('Saved heatmap and Procrustes PCA plots under', VIZ_FOLDER)

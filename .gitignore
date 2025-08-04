@@ -8,3 +8,4 @@ convos/*
 mistral-results*/*
 src/rl/constitutions/*
 data/*
+*.png

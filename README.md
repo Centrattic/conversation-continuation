@@ -99,8 +99,12 @@ reduce the need for exploration and the total length of training during the seco
 * ** I NEED SOME WAY OF EVALUATING FOR MYSELF THAT A MODEL IS GOOD ENOUGH FOR RL **
 * Switch to llama-3-8b. Apparently steering is good on this?? According to friend. Or gemma or deepseek MOEs or something. Try qwen possibly too
 * Make context as long as possible, you can do more than 8. Mistral 2048 max is tooo small. This will make even better (friend says so)
-* Rud. said something he's trying is RL with ground truth as well, and then modified ground truth --> wonder if this is closer to SL or something, the goal is to bring out the capability of the model but this is much less obvious than like 
-the helpful vs. harmful case
+* Rud. said something he's trying is RL with ground truth as well, and then modified ground truth --> wonder if this is closer to SL or something, the goal is to bring out the capability of the model but this is much less obvious than like the helpful vs. harmful case
+* MOE could be fire
+* whoa HRM is crazy like what - https://github.com/sapientinc/HRM. Can I design my own architecture then (ah world knoweldge is the issue here so prob no) like 27M BRUH WHAT
+* use Muon? Also, finetune model that's best at multiturn on LLM Arena
+- consider finetuning instruction trained? (I think thi is bad, think about this)
+
 
 ### Version 2.5: Steering vector optimization! (7/25/25)
 * Okay. So first thing, before RLHF, I kind of want to try steering optimization. Apparently something like activation norm in downstream layers actually works for this according to a friend doing research here + refusal paper. So should be possible to Optuna my steering vectors and make them actually good + entertaining
@@ -260,14 +264,53 @@ Ok, despite this, future ideas:
 3. A cool way to check how well your truth-building/world-modeling is going: follow-ups to the Geometry of Truth works, ie. particularly focusing on truth: (1) The Geometry of Truth: Emergent Linear Structure in Large Language Model Representations of True/False Datasets and (2) How well do truth probes generalise? by seeing if truth probes generalize better or something on the RL-ed or Memory added model
 4. Can I direct the convo in some meaningful way by providing a topic -- like maybe very mild steering vector to talk about some particular topic, would be cool?
 5. Another steering idea. First thing, maybe if I want to character train, I should simulate myself since I have the most data about myself (but this is kind of boring and less fun and i can always do this later if I have a good simulate other pipeline ig). But now imagine I simulate friend but don't train on much data outside of our conversation history -- and a mutual friend mentioned every so often wants to talk to friend. Then, what I can do is make a dataset from our real data, or simulated conversations where mutual friend is mentioned/discussed, the idea is that their values are somewhat modeled (or if I have a Consitution for friend + RL time, this instead is ideal), and then train a "mutual friend" probe on activations on that data. Then from that probe, I can get a direction for that "mutual friend" and steer in that direction.
-- my hypothesis: best for simulating person is Constitution + finetune text messages. second best is finetune for tone, Constitution for values
+- my hypothesis: best for simulating person is Constitution + finetune text messagesd. second best is finetune for tone, Constitution for values
 - another idea: finetune base model on conversation history. Then RL for one actor or another for values? I can also extract server data so maybe more data about someone (should ofc get consent for any data extracted)
 * TRY ABLATING DIRECTIONS WITH FRIEND BOT
-* TRAIN SAEs with FRIEND BOT
+* TRAIN SAEs with FRIEND BOT, Matroshkya Sae's would be cool cuz then I can get vectors for lots of different stuff/groups of traits
 * Good plots to make
 - project data onto probe/any direction + orthogonal direction & visualize separator
+* diff SAEs for personality differneces between us (diff models between Friend-bot and Riya-bot)
+- AlphaEvolve paper for diffs: https://arxiv.org/abs/2506.13131
+6. Constitution/RL ideas
+* No more finicky sampling, with DRUGS: https://github.com/EGjoni/
+* Training model to do sampling/DRUGS aligned with the consitution (ground truth is like constitution alignment score based on 4.1)
+* Idea: bayes optimization on validation set of convos you care about, otpimizing perplexity
+* Evolutionary algos, from preference data reverse engineer constitution (or from model) -- https://arxiv.org/pdf/2406.06560 (inverse consitututional AI)
+* Just DPO with ground truth, way simpler than PPO
+
+HOW TO DO DPO REALLY WELL
+
+Problem: constitution is bad
+
+1. first i do DPO with my ground truth data (+ filter, an easy filter is just length of response), or use an LLM to filter
+- choose prompts where he is most vulnerable/authentic with me
+
+2. talk with model enough and find areas where model is shit, get more good DPO data on that by asking Friend to edit responses to what he would say
+- try filtering outputs by perplexity, look at highest perplexity, do over training set, and group for Riya vs. Friend
+(do this DPO instead of finetuning)
 
 
+Sam idea:
+- Use Friend-bot as rater for filtering. So basically pairwise compare your best responses in training data to choose which are better (tournament style comparions). Have model either output A or B, just look at logits for A and B.
+- Get the opposite bots rate responses (Friend-bot rate Riya-bot, and vice versa)
+
+7. Finetuning ideas
+* Try finetuning an instruct model, 
+- what is best system prompt here. Idea to figure this out: train a smaller generator model, and finetune it based on the cross entropy of the larger model
+--- adversarial training with low learning rate for discriminator, and use generator
+--- generating system prompt in unsupervised way
+* generating COT the same way deepseek did? otpimizing cross entropy loss?
+
+8. Distillation plan for fast inference
+* Train 120B OpenAI OSS on 8 H100s, then distill model down to 
+
+
+QUIT CONSITUTIONAL AI - YOU DONT WANT THIS FOR HUMAN SIMS, since they are better for steering more permanently
+- perhaps this actually works well but...
+- ideally you learn everything in unsupervised ways, so you don't project incorrect traits
+
+- steer Friend based on Riya vector and vice versa (embedding vector)
 
 ## Lessons
 - sanity checking is super valuable. run small sanity checks on everything first before the expensive stuff if you're worried.

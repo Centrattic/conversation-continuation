@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-from openai import OpenAI, OpenAIError
+from openai import OpenAI
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm

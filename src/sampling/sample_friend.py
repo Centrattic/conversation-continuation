@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 
 from src.config import FRIEND_ID, OLD_RESULTS_FOLDER, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
-from src.model_utils import generate, generate_with_activations, generate_with_steering
+from src.model_utils import generate, generate_with_activations, generate_with_steering, generate_with_ppl
 from src.logger import ConversationLogger
 from src.activation_tda.tda_utils import find_topk_train_samples, SingleLayerActivationCache, aggregate_activations
 from src.steering.steer_utils import generate_steering_vector
@@ -37,7 +37,7 @@ else:
 
 base_model_name = Path(f"{MODEL_NAME}")
 adapter_path = Path(f"./{RESULTS_FOLDER}/lora_train/lora_adapter")
-max_new_tokens = 90
+max_new_tokens = 40
 
 # load new tokenizer, same if we didn't add new tokens, else different
 tokenizer = AutoTokenizer.from_pretrained(adapter_path)
@@ -80,9 +80,14 @@ if steer:
               "not bad": -0.25,
             }
 
+    steer_dict_w = {"wholesome":1, "perverted": -1}
+    extract_w = -5
+    steer_w = -1
+    alpha_w = 2
 
-    steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict, pos_alpha=alpha,
-                                               neg_alpha=alpha, layer_from_last=layer_extract)
+
+    steering_vector = generate_steering_vector(lora_model, tokenizer, steer_dict_w, pos_alpha=alpha_w,
+                                               neg_alpha=alpha_w, layer_from_last=extract_w)
 
 history = []
 hist_count = 0 # up to 8 since thats curr length
@@ -102,15 +107,17 @@ while(1):
 
     logger.log_to_file(f"\n[{RIYA_NAME}]: {prompt} \n")
 
+    perplexity = None
+
     if enable_tda:
         lora_out, acts = generate_with_activations(lora_model, "".join(history), 
                                                    tokenizer, max_new_tokens=max_new_tokens)
     elif steer: # can't steer and tda for now (would need to modify generate method a bit), but could do this easily if tda is worth it
         lora_out = generate_with_steering(lora_model, "".join(history), tokenizer,
                                         steering_vector, max_new_tokens=max_new_tokens,
-                                        layer_from_last=layer_steer)
+                                        layer_from_last=steer_w)
     else:
-        lora_out = generate(lora_model, "".join(history), tokenizer, 
+        lora_out, perplexity = generate_with_ppl(lora_model, "".join(history), tokenizer, 
                             max_new_tokens=max_new_tokens)
 
     index = lora_out.find(f"[{RIYA_NAME}]") # oh but sometimes outputs [R token and not [RIYA] both tokens (or more than 1?), since that is the split
@@ -125,6 +132,8 @@ while(1):
     hist_count += 1
 
     logger.log_to_all(f"[{FRIEND_NAME}]: {lora_out}")
+    if perplexity:
+        logger.log_to_all(f"{perplexity}")
 
     if enable_tda:
         sel_acts = acts[1:index+1] # a list, so grabbing the ones that are from (1, prompt_len+1, H) to (1, prompt_len+index, H)

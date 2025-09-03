@@ -6,10 +6,15 @@ from src.config import FRIEND_NAME, RIYA_NAME, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKE
 from tqdm import tqdm
 import random
 
-def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: int = 15, 
+
+def load_and_prepare_data(path: str,
+                          context_window: int = 8,
+                          max_gap_minutes: int = 15,
                           exclude_strings=[]):
     df = pd.read_csv(path)
-    df.columns = ["AuthorID", "Author", "Date", "Content", "Attachments", "Reactions"]
+    df.columns = [
+        "AuthorID", "Author", "Date", "Content", "Attachments", "Reactions"
+    ]
     df = df.dropna(subset=["Content"])  # remove empty messages
 
     if exclude_strings:
@@ -17,8 +22,9 @@ def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: i
         for text in exclude_strings:
             df = df[~df["Content"].str.contains(text, case=False, na=False)]
 
-    df["Date"] = pd.to_datetime(df["Date"], format="ISO8601") # %y-%m-%dT%H:%M:%S.%f+%z
-    df = df.sort_values(by="Date") 
+    df["Date"] = pd.to_datetime(df["Date"],
+                                format="ISO8601")  # %y-%m-%dT%H:%M:%S.%f+%z
+    df = df.sort_values(by="Date")
 
     conversations = []
     buffer = []
@@ -31,19 +37,22 @@ def load_and_prepare_data(path: str, context_window: int = 8, max_gap_minutes: i
             if gap > max_gap_minutes:
                 buffer = []  # reset context due to large gap
 
-        speaker = f"[{RIYA_NAME}]" if current["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+        speaker = f"[{RIYA_NAME}]" if current[
+            "Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
         buffer.append(f"{speaker} {current['Content'].strip()}")
 
-        if len(buffer) >= context_window + 1: # +1 for the response
-            prompt = "\n".join(buffer[-(context_window+1):-1])
+        if len(buffer) >= context_window + 1:  # +1 for the response
+            prompt = "\n".join(buffer[-(context_window + 1):-1])
             next_speaker = buffer[-1].split(" ", 1)[0]
             prompt += f"\n{next_speaker}"
             target = buffer[-1].split(" ", 1)[-1]  # remove speaker from target
             conversations.append({"prompt": prompt, "response": target})
 
-    conversations.reverse() # want to train on latest data earliest (maybe has teeny effect)
+    conversations.reverse(
+    )  # want to train on latest data earliest (maybe has teeny effect)
 
     return conversations
+
 
 def train_test_split(conversations: List[Dict], train_ratio=0.9, seed=42):
     random.seed(seed)
@@ -53,17 +62,20 @@ def train_test_split(conversations: List[Dict], train_ratio=0.9, seed=42):
     test_data = conversations[split_idx:]
     return train_data, test_data
 
+
 def save_json(data: List[Dict], path: str):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-data = load_and_prepare_data(f"{DATA_PATH}/friend_hist_new.csv", context_window = 8, # still keep 8, could train in future varying between like 4 and 12 or smt
-                             max_gap_minutes = 120) # increased gap since more longer-time-break convos given timezone diff
+data = load_and_prepare_data(
+    f"{DATA_PATH}/friend_hist_new.csv",
+    context_window=
+    8,  # still keep 8, could train in future varying between like 4 and 12 or smt
+    max_gap_minutes=120
+)  # increased gap since more longer-time-break convos given timezone diff
 
 # will mess with conversation starter tags
-exclude_strings = [RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN] 
+exclude_strings = [RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN]
 
-save_json(data, f"{DATA_PATH}/train.json") # train on all, no splits
-
-
+save_json(data, f"{DATA_PATH}/train.json")  # train on all, no splits

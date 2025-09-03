@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
 class ConversationLogger:
     """A simple logger that writes to a file and to the console."""
 
@@ -34,14 +35,14 @@ class ConversationLogger:
         print(message, file=self.terminal, flush=True)
         if self.log_file:
             print(message, file=self.log_file, flush=True)
-    
+
     def log_to_file(self, message: Any):
         """Writes a message to the console and the log file."""
         if self.log_file:
             print(message, file=self.log_file, flush=True)
         # else:
         #     print("No log file exists. Nothing was saved.",file=self.terminal, flush=True)
-        
+
     def log_to_console(self, message: Any):
         """Writes a message to the console and the log file."""
         print(message, file=self.terminal, flush=True)

@@ -1,9 +1,10 @@
 from src.data_utils import insert_mentions
 from src.config import RIYA_NAME, FRIEND_NAME
 
+
 def test_real_conversations():
     """Test with real conversation examples from the data."""
-    
+
     # Real examples from the conversation data
     real_examples = [
         "can i have an assignment?",
@@ -19,13 +20,14 @@ def test_real_conversations():
         "Let me get back to you on this",
         "Thanks",
     ]
-    
+
     print("Testing with real conversation data:")
-    print("="*50)
-    
+    print("=" * 50)
+
     for i, text in enumerate(real_examples, 1):
         # Determine speaker (simulating from context)
-        if any(word in text.lower() for word in ['assignment', 'prog', 'dean', 'orange', 'unifree']):
+        if any(word in text.lower() for word in
+               ['assignment', 'prog', 'dean', 'orange', 'unifree']):
             speakers = [FRIEND_NAME, RIYA_NAME]
         else:
             speakers = [RIYA_NAME, FRIEND_NAME]
@@ -35,4 +37,5 @@ def test_real_conversations():
         print(f"    Output: '{result}'")
         print()
 
-test_real_conversations() 
+
+test_real_conversations()

@@ -30,6 +30,32 @@ class SampleGenerationCallback(TrainerCallback):
     #     decoded = self.tokenizer.decode(output[0]) # skip_special_tokens=False
     #     return decoded
 
+    def _format_instruct_prompt(self, raw_prompt: str) -> str:
+        """
+        Make instruct prompts usable for generation without requiring a processor.
+        - If [SYS]/[USER] tags are present, extract user content; optionally prepend system.
+        - Otherwise, return stripped prompt.
+        This avoids callback failures for instruct/VLM models during sampling.
+        """
+        prompt = raw_prompt.strip()
+        try:
+            has_tags = all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]"))
+            if not has_tags:
+                return prompt
+
+            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
+            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
+            system_content = prompt[s0:s1].strip()
+            user_content = prompt[u0:u1].strip()
+
+            # Keep it simple for sampling: include system if present, then user
+            if system_content:
+                return f"{system_content}\n{user_content}"
+            return user_content
+        except Exception:
+            # On any parsing issue, fall back to the raw prompt to avoid breaking training
+            return prompt
+
     def on_step_end(self, args, state, control, seed=228, **kwargs):
         if state.global_step % self.every_n_steps == 0 and state.global_step > 0:
             model = kwargs["model"]
@@ -37,7 +63,7 @@ class SampleGenerationCallback(TrainerCallback):
 
             # somehow in diff training runs it's the same random choice ?? figure that out
             sample = random.choice(self.samples)
-            prompt_new = sample["prompt"].strip()
+            prompt_new = self._format_instruct_prompt(sample.get("prompt", ""))
             decoded_new = generate(model,
                                    prompt_new,
                                    self.tokenizer,
@@ -45,7 +71,7 @@ class SampleGenerationCallback(TrainerCallback):
             completion_new = decoded_new
 
             # saving both a new prompt for fun, and a constant prompt to track progress over time
-            prompt_const = self.samples[seed]["prompt"].strip()
+            prompt_const = self._format_instruct_prompt(self.samples[seed].get("prompt", ""))
             decoded_const = generate(model,
                                      prompt_const,
                                      self.tokenizer,

@@ -67,12 +67,12 @@ parser.add_argument('--data-path',
 
 parser.add_argument('--epochs',
                     type=int,
-                    default=3,
+                    default=2,
                     help='Number of training epochs')
 
 parser.add_argument('--batch-size',
                     type=int,
-                    default=4,
+                    default=32,
                     help='Training batch size')
 
 parser.add_argument('--learning-rate',
@@ -173,12 +173,12 @@ if model_type == "instruct":
 # Add special tokens if requested
 if args.special_tokens:
     special_tokens = get_speaker_tokens()
+    
     if IS_GEMMA_3_VLM:
-        processor.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-        model.resize_token_embeddings(len(processor.tokenizer))
-    else:
-        tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-        model.resize_token_embeddings(len(tokenizer))
+        tokenizer = processor.tokenizer
+    
+    tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+    model.resize_token_embeddings(len(tokenizer))
 
     # Initialize special token embeddings
     emb = model.get_input_embeddings()
@@ -244,82 +244,91 @@ dataset = DatasetDict({
 
 
 # Tokenize data
-def tokenize(example):
+def formatting(example):
     prompt = example["prompt"].strip()
     response = example["response"].strip()
 
     # currently training without images, could change in future
     if IS_GEMMA_3_VLM and (args.instruct_format and model_type == "instruct"):
-        print("IS GEMMA VLM")
+        # print("IS GEMMA VLM")
         # Extract [SYS] and [USER] exactly like your non-VLM path
         if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
             s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
             u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
-            sys_content  = prompt[s0:s1].strip()
+            system_content  = prompt[s0:s1].strip()
             user_content = prompt[u0:u1].strip()
     
         img_ref = example.get("image", None)
-        user_blocks, img = [], None
+        img = None
     
         if img_ref:
             try:
                 img = load_image(img_ref)
-                user_blocks.append({"type": "image"})
             except Exception as e:
                 print(f"[warn] failed to load image {img_ref}: {e}")
-        
-        messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user",   "content": user_content},
-                {"role": "assistant", "content": response},
+
+            messages = [
+                {"role": "system", "content": [{"type": "text", "text": system_content}]},
+                {"role": "user", "content": [{"type": "text", "text": user_content},
+                                               {"type": "image", "image": img}]},
+                {"role": "assistant", "content": [{"type": "text", "text": response}]},
             ]
+        else: 
+            # print("No images used in training") # we should always get this
+            messages = [
+                    {"role": "system", "content": [{"type": "text", "text": system_content}]},
+                    {"role": "user", "content": [{"type": "text", "text": user_content}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": response}]},
+                ]
     
         kwargs = dict(
-            messages=messages,
+            # messages=messages,
             add_generation_prompt=False,
-            tokenize=True,
+            tokenize=False,
             return_dict=True,
             return_tensors="pt",
         )
-        if img is not None:
-            proc_out = processor.apply_chat_template(**kwargs, images=[img],)
-        else:
-            proc_out = processor.apply_chat_template(**kwargs)
+        
+        proc_out = processor.apply_chat_template(conversation=messages, **kwargs)
 
-    elif args.instruct_format and model_type == "instruct":
-        print("NOT IS GEMMA VLM")
-        # Parse [SYS]/[USER] blocks if present; else fallback to user→assistant
-        if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
-            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
-            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
-            system_content = prompt[s0:s1].strip()
-            user_content   = prompt[u0:u1].strip()
-            messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user",   "content": user_content},
-                {"role": "assistant", "content": response},
-            ]
-        else:
-            raise ValueError("data processing failed")
-            # messages = [
-            #     {"role": "user", "content": prompt},
-            #     {"role": "assistant", "content": response},
-            # ]
+        return proc_out
 
-        formatted = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=False,
-            chat_template=tokenizer.chat_template,  # explicit
-        )
-        return tokenizer(formatted, truncation=True, padding=False, max_length=max_seq_length,)
+    # elif args.instruct_format and model_type == "instruct":
+    #     print("NOT IS GEMMA VLM")
+    #     # Parse [SYS]/[USER] blocks if present; else fallback to user→assistant
+    #     if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
+    #         s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
+    #         u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
+    #         system_content = prompt[s0:s1].strip()
+    #         user_content   = prompt[u0:u1].strip()
+    #         messages = [
+    #             {"role": "system", "content": system_content},
+    #             {"role": "user",   "content": user_content},
+    #             {"role": "assistant", "content": response},
+    #         ]
+    #     else:
+    #         raise ValueError("data processing failed")
+    #         # messages = [
+    #         #     {"role": "user", "content": prompt},
+    #         #     {"role": "assistant", "content": response},
+    #         # ]
+
+    #     formatted = tokenizer.apply_chat_template(
+    #         messages,
+    #         tokenize=False,
+    #         add_generation_prompt=False,
+    #         chat_template=tokenizer.chat_template,  # explicit
+    #     )
+    #     return tokenizer(formatted, truncation=True, padding=False, max_length=max_seq_length,)
 
     else: # base / non-instruct
-        full_text = f"{prompt} {response}"
-        return tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
+        full_text = f"{prompt}\n{response}"
+        return full_text # tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
 
-tokenized_dataset = dataset.map(tokenize,
-                                remove_columns=["prompt", "response"])
+formatted_dataset = dataset.map(lambda example: {
+                                            "text": formatting(example)
+                                            },
+                                            remove_columns=["prompt", "response"])
 
 # Set up training arguments
 training_args = TrainingArguments(
@@ -345,8 +354,8 @@ training_args = TrainingArguments(
 trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
-    train_dataset=tokenized_dataset["train"],
-    dataset_text_field=None,  # We're providing pre-tokenized data, other option "text"
+    train_dataset=formatted_dataset["train"],
+    dataset_text_field="text",  # We're providing pre-tokenized data, other option "text"
     max_seq_length=max_seq_length,
     dataset_num_proc=2,
     packing=False,  # Can make training 5x faster for short sequences

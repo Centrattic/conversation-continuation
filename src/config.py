@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 
 # Data configuration
-DATA_PATH = "data/finetune_7_27_25/"
+DATA_PATH = "data/finetune_9_3_25"
 
 # Speaker configuration
 FRIEND_ID = 547589426310676551
@@ -44,8 +44,12 @@ bnb_config = BitsAndBytesConfig(
 )
 
 # Instruct format configuration
+# The system prompt defines the model's role and context
 INSTRUCT_SYSTEM_PROMPT = "You are a chat model trained to simulate conversations between two friends, {FRIEND_SPEAKER_TOK} and {RIYA_SPEAKER_TOK}."
-INSTRUCT_USER_PROMPT_TEMPLATE = "{conversation_history} What does {next_speaker} say next?"
+
+# The user prompt contains the conversation history and question
+# This will be formatted as: {conversation_history}\n\nWhat does {next_speaker} say next?
+INSTRUCT_USER_PROMPT_TEMPLATE = "{conversation_history}\n\nWhat does {next_speaker} say next?"
 
 MODEL_CONFIGS = {
     "mistral-7b": {

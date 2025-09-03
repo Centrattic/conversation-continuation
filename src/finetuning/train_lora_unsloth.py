@@ -56,7 +56,7 @@ parser.add_argument('--instruct-format',
 parser.add_argument('--data-path',
                     type=str,
                     default=None,
-                    help='Path to training data (defaults to config)')
+                    help='Path to training data (optional, auto-detects based on config, model type)')
 
 parser.add_argument('--epochs',
                     type=int,
@@ -142,6 +142,18 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_8bit=load_in_8bit,
 )
 
+# Set up chat template for instruct models
+if model_type == "instruct":
+    # Get the model's native chat template
+    chat_template = get_chat_template(tokenizer)
+    if chat_template is None:
+        raise ValueError("Chat template is None")
+        # # Fallback chat template for models without predefined ones
+        # chat_template = "{% for message in messages %}{{'<s>' if loop.first else ''}}[INST] {{ message['content'] }} [/INST]{% endfor %}"
+    
+    print(f"Using chat template: {chat_template}")
+    tokenizer.chat_template = chat_template
+
 # Add special tokens if requested
 if args.special_tokens:
     special_tokens = get_speaker_tokens()
@@ -192,12 +204,14 @@ model = FastLanguageModel.get_peft_model(
     loftq_config=None,  # And LoftQ
 )
 
-# Load dataset
-data_path = args.data_path or f"{DATA_PATH}/train.json"
-if args.instruct_format:
-    data_path = f"{DATA_PATH}/instruct_train.json"
+# Load dataset - automatically select correct training file
+if args.instruct_format and model_type == "instruct":
+    data_path = f"{args.data_path}/instruct_train.json"
+else:
+    data_path = f"{args.data_path}/train.json"
 
 print(f"Loading dataset from: {data_path}")
+print(f"Model type: {model_type}, Instruct format: {args.instruct_format}")
 
 dataset = DatasetDict({
     "train":
@@ -207,12 +221,54 @@ dataset = DatasetDict({
 
 # Tokenize data
 def tokenize(example):
-    full_text = example["prompt"].strip() + " " + example["response"].strip()
-    tokenized = tokenizer(full_text,
-                          truncation=True,
-                          padding=False,
-                          max_length=max_seq_length)
-    return tokenized
+    if args.instruct_format and model_type == "instruct":
+        # Parse the prompt to extract system and user parts
+        # Expected format: <s>[SYS] {system_prompt} [/SYS] [USER] {user_prompt} [/USER]
+        prompt_text = example["prompt"].strip()
+        
+        # Extract system prompt (between [SYS] and [/SYS])
+        if "[SYS]" in prompt_text and "[/SYS]" in prompt_text and "[USER]" in prompt_text and "[/USER]" in prompt_text:
+            system_start = prompt_text.find("[SYS]") + len("[SYS]")
+            system_end = prompt_text.find("[/SYS]")
+            system_content = prompt_text[system_start:system_end].strip()
+            
+            # Extract user prompt (between [USER] and [/USER])
+            user_start = prompt_text.find("[USER]") + len("[USER]")
+            user_end = prompt_text.find("[/USER]")
+            user_content = prompt_text[user_start:user_end].strip()
+            
+            # Create proper chat format messages
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": example["response"].strip()}
+            ]
+            
+            # Apply chat template
+            formatted_text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,  # Return text, not tokens
+                add_generation_prompt=False
+            )
+            
+            # Tokenize the formatted text
+            tokenized = tokenizer(
+                formatted_text,
+                truncation=True,
+                padding=False,
+                max_length=max_seq_length
+            )
+            return tokenized
+    else:
+        # For base models or non-instruct format, use simple concatenation
+        full_text = example["prompt"].strip() + " " + example["response"].strip()
+        tokenized = tokenizer(
+            full_text,
+            truncation=True,
+            padding=False,
+            max_length=max_seq_length
+        )
+        return tokenized
 
 
 tokenized_dataset = dataset.map(tokenize,
@@ -243,7 +299,7 @@ trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
     train_dataset=tokenized_dataset["train"],
-    dataset_text_field="text",
+    dataset_text_field=None,  # We're providing pre-tokenized data, other option "text"
     max_seq_length=max_seq_length,
     dataset_num_proc=2,
     packing=False,  # Can make training 5x faster for short sequences

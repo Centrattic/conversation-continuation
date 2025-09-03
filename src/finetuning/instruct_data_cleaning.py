@@ -98,10 +98,11 @@ def create_instruct_example(conversation_history: str, next_speaker: str,
     user_prompt = INSTRUCT_USER_PROMPT_TEMPLATE.format(
         conversation_history=conversation_history, next_speaker=next_speaker)
 
-    # The response should include all messages from the next speaker
-    # For now, we'll just use the single message, but this could be extended
-    # to include multiple consecutive messages from the same speaker
-    response = f"{next_speaker} says: {response_content}"
+    # The response should use the proper speaker format: [Owen] {message}
+    if next_speaker == RIYA_NAME:
+        response = f"{RIYA_SPEAKER_TOKEN} {response_content}"
+    else:
+        response = f"{FRIEND_SPEAKER_TOKEN} {response_content}"
 
     return {"system": system_prompt, "user": user_prompt, "response": response}
 
@@ -128,8 +129,15 @@ def create_instruct_example_with_multiple_responses(
     user_prompt = INSTRUCT_USER_PROMPT_TEMPLATE.format(
         conversation_history=conversation_history, next_speaker=next_speaker)
 
-    # Combine all response messages
-    combined_response = f"{next_speaker} says: " + " ".join(response_messages)
+    # Combine all response messages with proper speaker format: [Riya] message1 [Riya] message2 [Riya] message3
+    if next_speaker == RIYA_NAME:
+        combined_response = " ".join([
+            f"{RIYA_SPEAKER_TOKEN} {msg}" for msg in response_messages
+        ])
+    else:
+        combined_response = " ".join([
+            f"{FRIEND_SPEAKER_TOKEN} {msg}" for msg in response_messages
+        ])
 
     return {
         "system": system_prompt,
@@ -139,12 +147,21 @@ def create_instruct_example_with_multiple_responses(
 
 
 def load_and_prepare_instruct_data_with_multiple_responses(
-        path: str,
-        context_window: int = 8,
-        max_gap_minutes: int = 15,
-        exclude_strings=[]):
+    path: str,
+    min_context_window: int = 4,
+    max_context_window: int = 20,
+    num_context_samples: int = 3,
+    max_gap_minutes: int = 45,
+    exclude_strings=[],
+):
     """
-    Enhanced version that groups consecutive messages from the same speaker.
+    Enhanced version that creates datapoints by looking forward from each message.
+    For each message, randomly samples num_context_samples context window lengths
+    between min_context_window and max_context_window.
+    
+    Each datapoint contains:
+    - Prompt: context starting from the current message and going forward for the chosen length
+    - Response: what the next speaker says after that context window
     """
     df = pd.read_csv(path)
     df.columns = [
@@ -160,61 +177,86 @@ def load_and_prepare_instruct_data_with_multiple_responses(
     df = df.sort_values(by="Date")
 
     conversations = []
-    buffer = []
+    
+    # Convert to list of messages with speaker info for easier processing
+    messages = []
+    for _, row in df.iterrows():
+        speaker = f"[{RIYA_NAME}]" if row["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+        messages.append({
+            "speaker": speaker,
+            "content": row["Content"].strip(),
+            "date": row["Date"]
+        })
 
-    for i in tqdm(range(len(df))):
-        current = df.iloc[i]
-        if i > 0:
-            prev_time = df.iloc[i - 1]["Date"]
-            gap = (current["Date"] - prev_time).total_seconds() / 60
-            if gap > max_gap_minutes:
-                buffer = []  # reset context due to large gap
-
-        speaker = f"[{RIYA_NAME}]" if current[
-            "Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
-        buffer.append(f"{speaker} {current['Content'].strip()}")
-
-        if len(buffer) >= context_window + 1:
-            # Create conversation history (excluding the last message)
-            conversation_history = "\n".join(buffer[-(context_window + 1):-1])
-
-            # Get the next message and determine speaker
-            next_message = buffer[-1]
-            next_speaker_tag = next_message.split(" ", 1)[0]
-            next_speaker_content = next_message.split(" ", 1)[1]
-
-            if next_speaker_tag == RIYA_SPEAKER_TOKEN:
+    for i in tqdm(range(len(messages))):
+        current_message = messages[i]
+        
+        # For each message, randomly choose context lengths
+        available_lengths = list(range(
+            min_context_window,
+            min(max_context_window + 1, len(messages) - i)
+        ))
+        
+        if not available_lengths:
+            continue
+            
+        # Randomly sample context lengths
+        context_lengths = random.sample(
+            available_lengths, 
+            min(num_context_samples, len(available_lengths))
+        )
+        
+        for context_length in context_lengths:
+            # Check if we have enough messages ahead to create this context
+            if i + context_length >= len(messages):
+                continue
+                
+            # Create context starting from current message and going forward
+            context_messages = messages[i:i + context_length]
+            conversation_history = "\n".join([
+                f"{msg['speaker']} {msg['content']}" 
+                for msg in context_messages
+            ])
+            
+            # Find the next speaker after the context window
+            next_message_idx = i + context_length
+            if next_message_idx >= len(messages):
+                continue
+                
+            next_message = messages[next_message_idx]
+            next_speaker_tag = next_message["speaker"]
+            
+            # Determine who the next speaker is
+            if next_speaker_tag == f"[{RIYA_NAME}]":
                 next_speaker = RIYA_NAME
             else:
                 next_speaker = FRIEND_NAME
-
-            # Look ahead to see if there are more consecutive messages from the same speaker
-            response_messages = [next_speaker_content]
-
-            # Check if there are more messages from the same speaker after this one
-            if i + 1 < len(df):
-                j = i + 1
-                while j < len(df):
-                    next_df_row = df.iloc[j]
-                    if j > 0:
-                        prev_time = df.iloc[j - 1]["Date"]
-                        gap = (next_df_row["Date"] -
-                               prev_time).total_seconds() / 60
-                        if gap > max_gap_minutes:
-                            break
-
-                    next_speaker_tag_check = f"[{RIYA_NAME}]" if next_df_row[
-                        "Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
-                    if next_speaker_tag_check == next_speaker_tag:
-                        response_messages.append(
-                            next_df_row["Content"].strip())
-                        j += 1
-                    else:
+            
+            # Look ahead to collect all consecutive messages from the next speaker
+            response_messages = [next_message["content"]]
+            j = next_message_idx + 1
+            
+            while j < len(messages):
+                # Check for time gap
+                if j > 0:
+                    gap = (messages[j]["date"] - messages[j-1]["date"]).total_seconds() / 60
+                    if gap > max_gap_minutes:
                         break
-
+                
+                # Only include messages from the same speaker
+                if messages[j]["speaker"] == next_speaker_tag:
+                    response_messages.append(messages[j]["content"])
+                    j += 1
+                else:
+                    break
+            
             # Create the instruct example
             instruct_example = create_instruct_example_with_multiple_responses(
                 conversation_history, next_speaker, response_messages)
+            
+            # Add metadata
+            instruct_example["context_window"] = context_length
+            instruct_example["start_message_index"] = i
             conversations.append(instruct_example)
 
     conversations.reverse()
@@ -240,13 +282,14 @@ def save_json(data: List[Dict], path: str):
 def format_for_training(instruct_examples: List[Dict]) -> List[Dict]:
     """
     Format instruct examples for training by combining system, user, and response
-    into a single prompt-response format.
+    into a single prompt-response format with clear labels.
     """
     formatted_examples = []
 
     for example in instruct_examples:
-        # Combine system and user prompts
-        full_prompt = f"<s>[INST] {example['system']}\n\n{example['user']} [/INST]"
+        # Format with clear labels for easy parsing:
+        # <s>[SYS] {system_prompt} [/SYS] [USER] {user_prompt} [/USER]
+        full_prompt = f"<s>[SYS] {example['system']} [/SYS]\n[USER] {example['user']} [/USER]"
 
         formatted_examples.append({
             "prompt": full_prompt,
@@ -258,10 +301,12 @@ def format_for_training(instruct_examples: List[Dict]) -> List[Dict]:
 
 # Main execution for creating instruct training data
 if __name__ == "__main__":
-    # Load and prepare instruct data
+    # Load and prepare instruct data with variable context windows
     data = load_and_prepare_instruct_data_with_multiple_responses(
-        f"{DATA_PATH}/friend_hist_new.csv",
-        context_window=8,
+        f"{DATA_PATH}/friend_hist_sept.csv",
+        min_context_window=4,
+        max_context_window=20,
+        num_context_samples=3,  # Sample 3 context lengths per conversation
         max_gap_minutes=120)
 
     # Format for training
@@ -271,6 +316,18 @@ if __name__ == "__main__":
     save_json(formatted_data, f"{DATA_PATH}/instruct_train.json")
 
     print(f"Created {len(formatted_data)} instruct training examples")
-    print("Sample example:")
+    print(f"Context windows range: 4-20 messages, sampling {3} lengths per conversation")
+
+    # Show context window distribution
+    context_counts = {}
+    for example in data:
+        ctx = example.get("context_window", "unknown")
+        context_counts[ctx] = context_counts.get(ctx, 0) + 1
+
+    print("\nContext window distribution:")
+    for ctx in sorted(context_counts.keys()):
+        print(f"  {ctx} messages: {context_counts[ctx]} examples")
+
+    print("\nSample example:")
     if formatted_data:
         print(json.dumps(formatted_data[0], indent=2))

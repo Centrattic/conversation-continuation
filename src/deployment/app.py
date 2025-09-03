@@ -12,6 +12,9 @@ import os
 import sys
 import gc
 import json
+import asyncio
+import signal
+import atexit
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -20,6 +23,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Project imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -58,7 +64,97 @@ DTYPE_MAP = {
     "float32": torch.float32,
 }
 
-# ---------- Helpers ----------
+# Ngrok tunnel - persistent backend tunnel for vercel to connect to
+ngrok_session = None
+ngrok_tunnel = None
+
+async def create_ngrok_tunnel():
+    """Create ngrok tunnel for public access"""
+    global ngrok_session, ngrok_tunnel
+    
+    try:
+        import ngrok
+        
+        # Get auth token from environment variable
+        auth_token = os.environ.get("NGROK_AUTH_TOKEN")
+        if not auth_token:
+            print("⚠️  NGROK_AUTH_TOKEN not set. Tunnel will be limited.")
+        
+        # For ngrok v1.5.1, use the older API
+        if auth_token:
+            ngrok.set_auth_token(auth_token)
+        
+        # Create HTTP tunnel to localhost:9100
+        tunnel = ngrok.connect(9100, "http")
+        
+        # For ngrok v1.5.1, we need to get the public URL differently
+        # The tunnel object might be a task, so we'll get the URL from ngrok API
+        import time
+        time.sleep(1)  # Give ngrok a moment to establish the tunnel
+        
+        # Get the public URL from ngrok's API
+        try:
+            import requests
+            tunnels = requests.get("http://localhost:4040/api/tunnels").json()
+            if tunnels and tunnels.get("tunnels"):
+                public_url = tunnels["tunnels"][0]["public_url"]
+            else:
+                # Fallback: construct the URL manually
+                public_url = f"https://{ngrok.get_ngrok_process().url.split('//')[1].split(':')[0]}.ngrok.io"
+        except Exception:
+            # Final fallback
+            public_url = "https://localhost.ngrok.io"
+        
+        ngrok_tunnel = tunnel
+        
+        print(f"🚀 ngrok tunnel created: {public_url}")
+        print(f"📝 Update your Vercel config.js with: apiBase: '{public_url}'")
+        
+        return public_url
+        
+    except Exception as e:
+        print(f"❌ Failed to create ngrok tunnel: {e}")
+        return None
+
+async def cleanup_ngrok():
+    """Clean up ngrok tunnel and session"""
+    global ngrok_session, ngrok_tunnel
+    
+    if ngrok_tunnel:
+        try:
+            # For ngrok v1.5.1, we need to get the URL from the API
+            try:
+                import requests
+                tunnels = requests.get("http://localhost:4040/api/tunnels").json()
+                if tunnels and tunnels.get("tunnels"):
+                    tunnel_url = tunnels["tunnels"][0]["public_url"]
+                    ngrok.disconnect(tunnel_url)
+                    print("🔒 ngrok tunnel closed")
+                else:
+                    print("⚠️  Could not find tunnel to close")
+            except Exception as e:
+                print(f"⚠️  Error getting tunnel info: {e}")
+                # Try to kill all ngrok processes as fallback
+                ngrok.kill()
+        except Exception as e:
+            print(f"⚠️  Error closing tunnel: {e}")
+    
+    # For older ngrok versions, we don't have a session to close
+    ngrok_session = None
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    print(f"\n🛑 Received signal {signum}, shutting down...")
+    if ngrok_tunnel:
+        asyncio.run(cleanup_ngrok())
+    sys.exit(0)
+
+# Register cleanup handlers
+atexit.register(lambda: asyncio.run(cleanup_ngrok()) if ngrok_tunnel else None)
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# helpers
 def truncate_to_next_speaker(text: str, expected_stop: str, other_stop: str) -> str:
     """Cut model output at first sign of the next speaker.
     Looks for multiple patterns: [Name], [Name], Name:, Name : (case-insensitive), and newlines.
@@ -83,7 +179,7 @@ def truncate_to_next_speaker(text: str, expected_stop: str, other_stop: str) -> 
         return text[:cut]
     return text
 
-# ---------- Runtime State ----------
+# runtime state
 class ChatSession:
     def __init__(self, bot_name: str) -> None:
         self.bot_name = bot_name
@@ -468,4 +564,24 @@ _INDEX_HTML_TEMPLATE = """
 """
 
 if __name__ == "__main__":
-    uvicorn.run("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)
+    # Create ngrok tunnel before starting the server
+    async def main():
+        print("🚀 Starting Conversation App with ngrok tunnel...")
+        
+        # Create ngrok tunnel
+        tunnel_url = await create_ngrok_tunnel()
+        
+        if tunnel_url:
+            print(f"✅ Public URL: {tunnel_url}")
+            print("📝 Copy this URL to your Vercel config.js apiBase")
+        else:
+            print("⚠️  Running without ngrok tunnel (local access only)")
+        
+        # Start the FastAPI server
+        print("🌐 Starting FastAPI server on localhost:9100...")
+        config = uvicorn.Config("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)
+        server = uvicorn.Server(config)
+        await server.serve()
+    
+    # Run the async main function
+    asyncio.run(main())

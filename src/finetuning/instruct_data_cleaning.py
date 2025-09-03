@@ -393,10 +393,10 @@ if __name__ == "__main__":
     data = load_and_prepare_instruct_data_with_multiple_responses(
         f"{DATA_PATH}/friend_hist_sept.csv",
         min_context_window=4,
-        max_context_window=20,
-        num_context_samples=3,  # Sample 3 context lengths per conversation
+        max_context_window=10,
+        num_context_samples=1,  # Sample 3 context lengths per conversation
         max_gap_minutes=120,
-        balance_next_speaker=True,
+        balance_next_speaker=False,
         ask_generic_next=True,
         max_next_messages=None)
 

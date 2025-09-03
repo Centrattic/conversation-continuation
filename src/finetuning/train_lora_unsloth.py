@@ -67,12 +67,12 @@ parser.add_argument('--data-path',
 
 parser.add_argument('--epochs',
                     type=int,
-                    default=2,
+                    default=1,
                     help='Number of training epochs')
 
 parser.add_argument('--batch-size',
                     type=int,
-                    default=32,
+                    default=96,
                     help='Training batch size')
 
 parser.add_argument('--learning-rate',
@@ -87,8 +87,8 @@ parser.add_argument('--max-seq-length',
 
 parser.add_argument('--quantization',
                     type=str,
-                    choices=['4bit', '8bit', 'auto'],
-                    default='8bit',
+                    choices=['4bit', '8bit'],
+                    default='4bit',
                     help='Quantization level (4bit, 8bit, or auto based on model)')
 
 args = parser.parse_args()
@@ -183,10 +183,20 @@ if args.special_tokens:
     # Initialize special token embeddings
     emb = model.get_input_embeddings()
     with torch.no_grad():
-        mapping = {
-            special_tokens[0]: ["ri", "ya", "_R"],
-            special_tokens[1]: ["▁Owen"]  # that is NOT an _ it's the space
-        }
+        if IS_GEMMA_3_VLM:
+            mapping = {
+                special_tokens[0]: ["▁Jordan"],
+                special_tokens[1]: ["▁Jordan"]
+            }
+            # mapping = {
+            #     special_tokens[0]: ["▁Ria"],
+            #     special_tokens[1]: ["▁Owen", "Owen"]  # that is NOT an _ it's the space
+            # }
+        else: # mistral, make this neater later
+            mapping = {
+                special_tokens[0]: ["ri", "ya", "_R"],
+                special_tokens[1]: ["▁Owen"]  # that is NOT an _ it's the space
+            }
         for tok, refs in mapping.items():
             tid = tokenizer.convert_tokens_to_ids(tok)
             ref_ids = tokenizer.convert_tokens_to_ids(refs)
@@ -214,12 +224,12 @@ model = FastLanguageModel.get_peft_model(
     model,
     r=12,  # LoRA rank
     target_modules=target_modules,
-    lora_alpha=8,
-    lora_dropout=0.05,
-    bias="all",
+    lora_alpha=12,
+    lora_dropout=0, # 0.05
+    bias="none", # all
     use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
     random_state=3407,
-    use_rslora=False,  # We support rank stabilized LoRA
+    use_rslora=True,  # We support rank stabilized LoRA
     loftq_config=None,  # And LoftQ
 )
 
@@ -292,35 +302,6 @@ def formatting(example):
         proc_out = processor.apply_chat_template(conversation=messages, **kwargs)
 
         return proc_out
-
-    # elif args.instruct_format and model_type == "instruct":
-    #     print("NOT IS GEMMA VLM")
-    #     # Parse [SYS]/[USER] blocks if present; else fallback to user→assistant
-    #     if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
-    #         s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
-    #         u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
-    #         system_content = prompt[s0:s1].strip()
-    #         user_content   = prompt[u0:u1].strip()
-    #         messages = [
-    #             {"role": "system", "content": system_content},
-    #             {"role": "user",   "content": user_content},
-    #             {"role": "assistant", "content": response},
-    #         ]
-    #     else:
-    #         raise ValueError("data processing failed")
-    #         # messages = [
-    #         #     {"role": "user", "content": prompt},
-    #         #     {"role": "assistant", "content": response},
-    #         # ]
-
-    #     formatted = tokenizer.apply_chat_template(
-    #         messages,
-    #         tokenize=False,
-    #         add_generation_prompt=False,
-    #         chat_template=tokenizer.chat_template,  # explicit
-    #     )
-    #     return tokenizer(formatted, truncation=True, padding=False, max_length=max_seq_length,)
-
     else: # base / non-instruct
         full_text = f"{prompt}\n{response}"
         return full_text # tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
@@ -333,20 +314,20 @@ formatted_dataset = dataset.map(lambda example: {
 # Set up training arguments
 training_args = TrainingArguments(
     per_device_train_batch_size=args.batch_size,
-    gradient_accumulation_steps=4,
-    warmup_steps=200,
+    gradient_accumulation_steps=2,
+    warmup_steps=20,
     num_train_epochs=args.epochs,
     learning_rate=args.learning_rate,
     fp16=False, # just so slow
     bf16=True,
-    logging_steps=50,
+    logging_steps=1,
     optim="adamw_8bit",
     weight_decay=0.01,
     lr_scheduler_type="linear",
     seed=3407,
     output_dir=str(experiment_folder / "training_output"),
     save_strategy="steps",
-    save_steps=1500,
+    save_steps=50,
     report_to="none",
 )
 
@@ -365,7 +346,7 @@ trainer = SFTTrainer(
                                  log_path=experiment_folder /
                                  "mid_completions.json",
                                  test_data_path=Path(data_path),
-                                 every_n_steps=200,
+                                 every_n_steps=8,
                                  processor=processor if IS_GEMMA_3_VLM else None),
         LiveJSONLogger(log_path=experiment_folder / "log.json")
     ],

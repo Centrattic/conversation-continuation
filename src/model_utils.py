@@ -211,9 +211,12 @@ def prepare_generation_inputs(
             max_length=max_length,
         ).to(model.device)
 
-    input_length = model_inputs.input_ids.shape[1]
+    try:
+        input_ids = model_inputs.input_ids
+    except AttributeError:
+        input_ids = model_inputs["input_ids"]
+    input_length = input_ids.shape[1]
     return model_inputs, input_length
-
 
 @torch.no_grad()
 def generate(

@@ -65,48 +65,32 @@ DTYPE_MAP = {
 }
 
 # Ngrok tunnel - persistent backend tunnel for vercel to connect to
-ngrok_session = None
-ngrok_tunnel = None
+ngrok_listener = None
 
 async def create_ngrok_tunnel():
-    """Create ngrok tunnel for public access"""
-    global ngrok_session, ngrok_tunnel
+    """Create ngrok tunnel for public access using pyngrok"""
+    global ngrok_listener
     
     try:
-        import ngrok
+        from pyngrok import ngrok
         
         # Get auth token from environment variable
         auth_token = os.environ.get("NGROK_AUTH_TOKEN")
         if not auth_token:
             print("⚠️  NGROK_AUTH_TOKEN not set. Tunnel will be limited.")
-        
-        # For ngrok v1.5.1, use the older API
-        if auth_token:
+        else:
+            # Set the auth token for pyngrok
             ngrok.set_auth_token(auth_token)
+            print("✅ ngrok auth token set")
         
-        # Create HTTP tunnel to localhost:9100
-        tunnel = ngrok.connect(9100, "http")
+        # Create HTTP tunnel to localhost:9100 using pyngrok
+        print("🔌 Creating ngrok tunnel to localhost:9100...")
+        # For pyngrok, we use connect() method with port and protocol
+        ngrok_listener = ngrok.connect(9100, "http")
         
-        # For ngrok v1.5.1, we need to get the public URL differently
-        # The tunnel object might be a task, so we'll get the URL from ngrok API
-        import time
-        time.sleep(1)  # Give ngrok a moment to establish the tunnel
-        
-        # Get the public URL from ngrok's API
-        try:
-            import requests
-            tunnels = requests.get("http://localhost:4040/api/tunnels").json()
-            if tunnels and tunnels.get("tunnels"):
-                public_url = tunnels["tunnels"][0]["public_url"]
-            else:
-                # Fallback: construct the URL manually
-                public_url = f"https://{ngrok.get_ngrok_process().url.split('//')[1].split(':')[0]}.ngrok.io"
-        except Exception:
-            # Final fallback
-            public_url = "https://localhost.ngrok.io"
-        
-        ngrok_tunnel = tunnel
-        
+        # Get the public URL from the listener
+        # In pyngrok, the tunnel object has a public_url attribute
+        public_url = ngrok_listener.public_url
         print(f"🚀 ngrok tunnel created: {public_url}")
         print(f"📝 Update your Vercel config.js with: apiBase: '{public_url}'")
         
@@ -117,40 +101,38 @@ async def create_ngrok_tunnel():
         return None
 
 async def cleanup_ngrok():
-    """Clean up ngrok tunnel and session"""
-    global ngrok_session, ngrok_tunnel
+    """Clean up ngrok tunnel using pyngrok"""
+    global ngrok_listener
     
-    if ngrok_tunnel:
+    if ngrok_listener:
         try:
-            # For ngrok v1.5.1, we need to get the URL from the API
-            try:
-                import requests
-                tunnels = requests.get("http://localhost:4040/api/tunnels").json()
-                if tunnels and tunnels.get("tunnels"):
-                    tunnel_url = tunnels["tunnels"][0]["public_url"]
-                    ngrok.disconnect(tunnel_url)
-                    print("🔒 ngrok tunnel closed")
-                else:
-                    print("⚠️  Could not find tunnel to close")
-            except Exception as e:
-                print(f"⚠️  Error getting tunnel info: {e}")
-                # Try to kill all ngrok processes as fallback
-                ngrok.kill()
+            from pyngrok import ngrok
+            
+            # Get the URL before disconnecting
+            tunnel_url = ngrok_listener.url()
+            
+            # Disconnect the specific tunnel
+            ngrok.disconnect(tunnel_url)
+            print(f"🔒 ngrok tunnel closed: {tunnel_url}")
+            
+            # Also kill any remaining ngrok processes
+            ngrok.kill()
+            print("🔒 ngrok processes killed")
+            
         except Exception as e:
             print(f"⚠️  Error closing tunnel: {e}")
     
-    # For older ngrok versions, we don't have a session to close
-    ngrok_session = None
+    ngrok_listener = None
 
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
     print(f"\n🛑 Received signal {signum}, shutting down...")
-    if ngrok_tunnel:
+    if ngrok_listener:
         asyncio.run(cleanup_ngrok())
     sys.exit(0)
 
 # Register cleanup handlers
-atexit.register(lambda: asyncio.run(cleanup_ngrok()) if ngrok_tunnel else None)
+atexit.register(lambda: asyncio.run(cleanup_ngrok()) if ngrok_listener else None)
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 

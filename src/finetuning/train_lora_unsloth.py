@@ -11,10 +11,15 @@ from trl import SFTTrainer
 from transformers import TrainingArguments
 from datasets import load_dataset, DatasetDict
 
+from transformers import AutoProcessor
+from PIL import Image
+import io
+import requests
+
 # Local imports
 from src.model_utils import (get_model_config, get_results_folder,
                              create_experiment_folder, save_experiment_config,
-                             get_lora_adapter_path)
+                             get_lora_adapter_path, load_image)
 from src.config import FRIEND_NAME, RIYA_NAME, DATA_PATH, bnb_config
 from src.data_utils import get_speaker_tokens
 from src.finetuning.callbacks import SampleGenerationCallback, LiveJSONLogger
@@ -23,6 +28,8 @@ print("Torch available: ", torch.cuda.is_available())
 assert torch.cuda.is_available()
 torch.cuda.empty_cache()
 torch.cuda.ipc_collect()
+
+IS_GEMMA_3_VLM = False
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description="Train LoRA with Unsloth")
@@ -38,7 +45,7 @@ parser.add_argument('--experiment',
                     help='Experiment name (defaults to timestamp)')
 
 parser.add_argument('--special-tokens',
-                    action='store_false',
+                    action='store_false', # default true without argument, should rename args
                     help='Load from special token embeddings')
 
 parser.add_argument('--continue-training',
@@ -60,7 +67,7 @@ parser.add_argument('--data-path',
 
 parser.add_argument('--epochs',
                     type=int,
-                    default=6,
+                    default=3,
                     help='Number of training epochs')
 
 parser.add_argument('--batch-size',
@@ -75,7 +82,7 @@ parser.add_argument('--learning-rate',
 
 parser.add_argument('--max-seq-length',
                     type=int,
-                    default=2048,
+                    default=4096,
                     help='Maximum sequence length')
 
 parser.add_argument('--quantization',
@@ -99,7 +106,7 @@ model_name = model_config["model_name"]
 model_type = model_config["model_type"]
 
 # Create experiment folder
-experiment_folder = create_experiment_folder(args.model, experiment_name)
+experiment_folder = create_experiment_folder(args.model, experiment_name,)
 
 # Save experiment configuration
 experiment_config = {
@@ -142,23 +149,36 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_8bit=load_in_8bit,
 )
 
+if "gemma-3-27b-it" in model_name.lower():
+    IS_GEMMA_3_VLM = True
+    processor = AutoProcessor.from_pretrained(model_name)
+else:
+    processor = None
+
+# Set up chat template for instruct models
+
 # Set up chat template for instruct models
 if model_type == "instruct":
-    # Get the model's native chat template
-    chat_template = get_chat_template(tokenizer)
-    if chat_template is None:
-        raise ValueError("Chat template is None")
-        # # Fallback chat template for models without predefined ones
-        # chat_template = "{% for message in messages %}{{'<s>' if loop.first else ''}}[INST] {{ message['content'] }} [/INST]{% endfor %}"
-    
-    print(f"Using chat template: {chat_template}")
-    tokenizer.chat_template = chat_template
+    if IS_GEMMA_3_VLM:
+        # Gemma VLM: use processor.apply_chat_template; do NOT set tokenizer.chat_template
+        pass
+    else:
+        # Non-VLM: use tokenizer's built-in template if it exists
+        tmpl = getattr(tokenizer, "chat_template", None)
+        if isinstance(tmpl, str):
+            tokenizer.chat_template = tmpl
+        else:
+            print("[info] no string chat_template on tokenizer; falling back to plain text formatting")
 
 # Add special tokens if requested
 if args.special_tokens:
     special_tokens = get_speaker_tokens()
-    tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
-    model.resize_token_embeddings(len(tokenizer))
+    if IS_GEMMA_3_VLM:
+        processor.tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+        model.resize_token_embeddings(len(processor.tokenizer))
+    else:
+        tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
+        model.resize_token_embeddings(len(tokenizer))
 
     # Initialize special token embeddings
     emb = model.get_input_embeddings()
@@ -194,21 +214,25 @@ model = FastLanguageModel.get_peft_model(
     model,
     r=12,  # LoRA rank
     target_modules=target_modules,
-    lora_alpha=16,
+    lora_alpha=8,
     lora_dropout=0.05,
     bias="all",
-    use_gradient_checkpointing=
-    "unsloth",  # True or "unsloth" for very long context
+    use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
     random_state=3407,
     use_rslora=False,  # We support rank stabilized LoRA
     loftq_config=None,  # And LoftQ
 )
 
 # Load dataset - automatically select correct training file
+
+data_path = DATA_PATH if args.data_path is None else args.data_path
+
 if args.instruct_format and model_type == "instruct":
-    data_path = f"{args.data_path}/instruct_train.json"
+    training_file = "instruct_train.json"
 else:
-    data_path = f"{args.data_path}/train.json"
+    training_file = "train.json"
+
+data_path = f"{data_path}/{training_file}"
 
 print(f"Loading dataset from: {data_path}")
 print(f"Model type: {model_type}, Instruct format: {args.instruct_format}")
@@ -221,55 +245,78 @@ dataset = DatasetDict({
 
 # Tokenize data
 def tokenize(example):
-    if args.instruct_format and model_type == "instruct":
-        # Parse the prompt to extract system and user parts
-        # Expected format: <s>[SYS] {system_prompt} [/SYS] [USER] {user_prompt} [/USER]
-        prompt_text = example["prompt"].strip()
+    prompt = example["prompt"].strip()
+    response = example["response"].strip()
+
+    # currently training without images, could change in future
+    if IS_GEMMA_3_VLM and (args.instruct_format and model_type == "instruct"):
+        print("IS GEMMA VLM")
+        # Extract [SYS] and [USER] exactly like your non-VLM path
+        if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
+            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
+            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
+            sys_content  = prompt[s0:s1].strip()
+            user_content = prompt[u0:u1].strip()
+    
+        img_ref = example.get("image", None)
+        user_blocks, img = [], None
+    
+        if img_ref:
+            try:
+                img = load_image(img_ref)
+                user_blocks.append({"type": "image"})
+            except Exception as e:
+                print(f"[warn] failed to load image {img_ref}: {e}")
         
-        # Extract system prompt (between [SYS] and [/SYS])
-        if "[SYS]" in prompt_text and "[/SYS]" in prompt_text and "[USER]" in prompt_text and "[/USER]" in prompt_text:
-            system_start = prompt_text.find("[SYS]") + len("[SYS]")
-            system_end = prompt_text.find("[/SYS]")
-            system_content = prompt_text[system_start:system_end].strip()
-            
-            # Extract user prompt (between [USER] and [/USER])
-            user_start = prompt_text.find("[USER]") + len("[USER]")
-            user_end = prompt_text.find("[/USER]")
-            user_content = prompt_text[user_start:user_end].strip()
-            
-            # Create proper chat format messages
+        messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user",   "content": user_content},
+                {"role": "assistant", "content": response},
+            ]
+    
+        kwargs = dict(
+            messages=messages,
+            add_generation_prompt=False,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+        if img is not None:
+            proc_out = processor.apply_chat_template(**kwargs, images=[img],)
+        else:
+            proc_out = processor.apply_chat_template(**kwargs)
+
+    elif args.instruct_format and model_type == "instruct":
+        print("NOT IS GEMMA VLM")
+        # Parse [SYS]/[USER] blocks if present; else fallback to user→assistant
+        if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
+            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
+            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
+            system_content = prompt[s0:s1].strip()
+            user_content   = prompt[u0:u1].strip()
             messages = [
                 {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content},
-                {"role": "assistant", "content": example["response"].strip()}
+                {"role": "user",   "content": user_content},
+                {"role": "assistant", "content": response},
             ]
-            
-            # Apply chat template
-            formatted_text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,  # Return text, not tokens
-                add_generation_prompt=False
-            )
-            
-            # Tokenize the formatted text
-            tokenized = tokenizer(
-                formatted_text,
-                truncation=True,
-                padding=False,
-                max_length=max_seq_length
-            )
-            return tokenized
-    else:
-        # For base models or non-instruct format, use simple concatenation
-        full_text = example["prompt"].strip() + " " + example["response"].strip()
-        tokenized = tokenizer(
-            full_text,
-            truncation=True,
-            padding=False,
-            max_length=max_seq_length
-        )
-        return tokenized
+        else:
+            raise ValueError("data processing failed")
+            # messages = [
+            #     {"role": "user", "content": prompt},
+            #     {"role": "assistant", "content": response},
+            # ]
 
+        formatted = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+            chat_template=tokenizer.chat_template,  # explicit
+        )
+        return tokenizer(formatted, truncation=True, padding=False, max_length=max_seq_length,)
+
+    else: # base / non-instruct
+        full_text = f"{prompt} {response}"
+        return tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
 
 tokenized_dataset = dataset.map(tokenize,
                                 remove_columns=["prompt", "response"])
@@ -281,8 +328,8 @@ training_args = TrainingArguments(
     warmup_steps=200,
     num_train_epochs=args.epochs,
     learning_rate=args.learning_rate,
-    fp16=not torch.cuda.is_bf16_supported(),
-    bf16=torch.cuda.is_bf16_supported(),
+    fp16=False, # just so slow
+    bf16=True,
     logging_steps=50,
     optim="adamw_8bit",
     weight_decay=0.01,

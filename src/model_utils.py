@@ -4,8 +4,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import json
 from datetime import datetime
-from config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER
+from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER
 
+def load_image(img_ref: str): # for vlms
+    """img_ref can be a local path or a URL"""
+    if img_ref.startswith("http://") or img_ref.startswith("https://"):
+        resp = requests.get(img_ref, timeout=10)
+        resp.raise_for_status()
+        return Image.open(io.BytesIO(resp.content)).convert("RGB")
+    return Image.open(img_ref).convert("RGB")
 
 # Model configurations
 def get_model_config(model_key: str) -> Dict:

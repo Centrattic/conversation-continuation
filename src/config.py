@@ -66,7 +66,7 @@ MODEL_CONFIGS = {
         ]
     },
     "gemma-3-27b-it": {
-        "model_name":"google/gemma-2-27b-it",
+        "model_name":"google/gemma-3-27b-it",
         "model_type":"instruct",
         "lora_targets": ["q_proj", "v_proj"],
         "lora_targets_with_embeddings":

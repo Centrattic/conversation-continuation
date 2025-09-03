@@ -1,0 +1,415 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Conversation</title>
+    <style>
+        :root {
+            --bg: #0b0b0f;
+            --card: #121218;
+            --muted: #1a1a22;
+            --text: #e9e9ef;
+            --subtext: #a3a3b2;
+            --accent: #7c5cff;
+            --accent2: #28d1b6;
+            --danger: #ff4d67;
+            --ok: #3ddc97;
+            --border: #2a2a36;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+
+        .wrap {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 16px;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .title {
+            font-weight: 700;
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            background: var(--muted);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, var(--accent), #5243ff);
+            border: none;
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, var(--danger), #ff2750);
+            border: none;
+        }
+
+        button:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+        }
+
+        .btns {
+            display: grid;
+            gap: 10px;
+        }
+
+        .status {
+            margin-top: 12px;
+            color: var(--subtext);
+            font-size: 14px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .tab {
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: var(--muted);
+            color: var(--text);
+            cursor: pointer;
+            border: 1px solid var(--border);
+        }
+
+        .tab.active {
+            background: var(--accent);
+        }
+
+        .chat {
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            height: calc(100vh - 40px);
+            gap: 12px;
+        }
+
+        .log {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+            overflow-y: auto;
+            min-height: 200px;
+        }
+
+        .msg {
+            margin: 6px 0;
+        }
+
+        .me {
+            color: var(--accent2);
+        }
+
+        .bot {
+            color: var(--text);
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 90px;
+            background: var(--muted);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            resize: vertical;
+        }
+
+        .steer {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px;
+            margin-bottom: 8px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .steer input[type="text"] {
+            width: 100%;
+            background: var(--muted);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        label {
+            color: var(--subtext);
+            font-size: 14px;
+        }
+
+        .gate {
+            display: grid;
+            place-items: center;
+            height: 100vh;
+        }
+
+        .login {
+            width: 360px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .login h1 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+
+        .login input[type="password"] {
+            width: 100%;
+            background: var(--muted);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .login .err {
+            color: var(--danger);
+            font-size: 14px;
+            min-height: 18px;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="gate" class="gate">
+        <div class="login">
+            <h1>Enter Access Password</h1>
+            <p class="status" id="authStatus">Private demo. Authorization required.</p>
+            <input id="pw" type="password" placeholder="Password" autocomplete="current-password" />
+            <div style="margin-top:10px; display:flex; gap:8px;">
+                <button id="login" class="primary" style="flex:1">Continue</button>
+            </div>
+            <div id="err" class="err"></div>
+        </div>
+    </div>
+
+    <div id="app" class="wrap" style="display:none">
+        <div class="panel">
+            <div class="title">Controls</div>
+            <div class="btns">
+                <button id="start" class="primary">Start Server</button>
+                <button id="stop" class="danger">Stop Server</button>
+            </div>
+            <div id="status" class="status">Model: stopped</div>
+            <div class="steer">
+                <label><input type="checkbox" id="steerEnabled" /> Enable steering</label>
+                <label>Positive prompt</label>
+                <input id="pos" type="text" placeholder="e.g. wholesome, helpful" />
+                <label>Negative prompts (comma-separated)</label>
+                <input id="neg" type="text" placeholder="e.g. toxic, rude" />
+            </div>
+        </div>
+
+        <div class="panel chat">
+            <div>
+                <div class="tabs">
+                    <div class="tab active" id="tab-riya"></div>
+                    <div class="tab" id="tab-owen"></div>
+                </div>
+            </div>
+
+            <div id="log-riya" class="log"></div>
+            <div id="log-owen" class="log" style="display:none"></div>
+
+            <div>
+                <div class="row">
+                    <textarea id="input" placeholder="Type a message..."></textarea>
+                    <button id="send" class="primary">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./config.js"></script>
+    <script>
+        const cfg = window.APP_CONFIG || { riyaName: 'Riya', owenName: 'Owen', maxNewTokens: 80, apiBase: '' };
+        const API_BASE = cfg.apiBase || '';
+        let bot = 'riya';
+        const logRiya = document.getElementById('log-riya');
+        const logOwen = document.getElementById('log-owen');
+
+        document.getElementById('tab-riya').textContent = (cfg.riyaName || 'Riya') + '-bot';
+        document.getElementById('tab-owen').textContent = (cfg.owenName || 'Owen') + '-bot';
+
+        const msgs = { riya: [], owen: [] };
+
+        function render() {
+            const target = bot === 'riya' ? logRiya : logOwen;
+            target.innerHTML = '';
+            for (const m of msgs[bot]) {
+                const d = document.createElement('div');
+                d.className = 'msg ' + m.role;
+                d.textContent = m.name + ': ' + m.text;
+                target.appendChild(d);
+            }
+            target.scrollTop = target.scrollHeight;
+        }
+
+        function currentLog() { return bot === 'riya' ? logRiya : logOwen; }
+
+        function add(role, text) {
+            const name = role === 'me' ? 'You' : (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen'));
+            msgs[bot].push({ role, text, name });
+            render();
+        }
+
+        function showLogin(msg) {
+            document.getElementById('app').style.display = 'none';
+            document.getElementById('gate').style.display = '';
+            document.getElementById('err').textContent = msg || '';
+        }
+
+        function showApp() {
+            document.getElementById('gate').style.display = 'none';
+            document.getElementById('app').style.display = '';
+        }
+
+        async function call(path, payload) {
+            const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + path;
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload || {})
+            });
+            if (!r.ok) throw new Error(await r.text());
+            return r.json();
+        }
+
+        async function refreshStatus() {
+            const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/health';
+            try {
+                const r = await fetch(url);
+                const j = await r.json();
+                document.getElementById('status').textContent = 'Model: ' + (j.loaded === 'True' || j.loaded === true ? 'running' : 'stopped');
+            } catch (e) {
+                document.getElementById('status').textContent = 'Model: unreachable';
+            }
+        }
+
+        document.getElementById('start').onclick = async () => {
+            document.getElementById('status').textContent = 'Starting...';
+            try {
+                await call('/start', {});
+            } catch (e) { alert('Start failed: ' + e.message); }
+            refreshStatus();
+        };
+        document.getElementById('stop').onclick = async () => {
+            document.getElementById('status').textContent = 'Stopping...';
+            try { await call('/stop', {}); } catch (e) { }
+            refreshStatus();
+        };
+
+        document.getElementById('tab-riya').onclick = () => {
+            bot = 'riya';
+            document.getElementById('tab-riya').classList.add('active');
+            document.getElementById('tab-owen').classList.remove('active');
+            logRiya.style.display = '';
+            logOwen.style.display = 'none';
+            document.getElementById('input').value = '';
+            render();
+        };
+        document.getElementById('tab-owen').onclick = () => {
+            bot = 'owen';
+            document.getElementById('tab-owen').classList.add('active');
+            document.getElementById('tab-riya').classList.remove('active');
+            logOwen.style.display = '';
+            logRiya.style.display = 'none';
+            document.getElementById('input').value = '';
+            render();
+        };
+
+        async function send() {
+            const t = document.getElementById('input');
+            const text = t.value.trim(); if (!text) return;
+            add('me', text); t.value = '';
+            const steerEnabled = document.getElementById('steerEnabled').checked;
+            const pos = document.getElementById('pos').value;
+            const neg = document.getElementById('neg').value;
+            try {
+                const r = await call('/chat', {
+                    bot,
+                    message: text,
+                    steering: { enabled: steerEnabled, positive: pos, negative_csv: neg },
+                    max_new_tokens: Number(cfg.maxNewTokens || 80)
+                });
+                msgs[bot].push({ role: 'bot', text: r.response, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')) });
+                render();
+            } catch (e) {
+                msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')) });
+                render();
+            }
+        }
+        document.getElementById('send').onclick = send;
+        document.getElementById('input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+
+        document.getElementById('login').onclick = async () => {
+            const pw = (document.getElementById('pw').value || '').slice(0, 256);
+            try {
+                const r = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pw })
+                });
+                if (!r.ok) { document.getElementById('err').textContent = 'Invalid password.'; return; }
+                showApp();
+                refreshStatus();
+            } catch (e) {
+                document.getElementById('err').textContent = 'Login failed.';
+            }
+        };
+
+        // Enter key on password field
+        document.getElementById('pw').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('login').click();
+            }
+        });
+    </script>
+</body>
+
+</html>

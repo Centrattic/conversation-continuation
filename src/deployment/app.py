@@ -61,7 +61,7 @@ DTYPE_MAP = {
 # ---------- Helpers ----------
 def truncate_to_next_speaker(text: str, expected_stop: str, other_stop: str) -> str:
     """Cut model output at first sign of the next speaker.
-    Looks for multiple patterns: [Name], Name:, Name : (case-insensitive), and newlines.
+    Looks for multiple patterns: [Name], [Name], Name:, Name : (case-insensitive), and newlines.
     """
     candidates: List[int] = []
     lowers = text.lower()

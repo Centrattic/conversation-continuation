@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import json
 from datetime import datetime
+import io
+import requests
+from PIL import Image
 from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER
 
 def load_image(img_ref: str): # for vlms
@@ -149,20 +152,82 @@ def get_latest_experiment(model_key: str) -> Optional[str]:
 
 # Generation functions (keeping existing functionality)
 @torch.no_grad()
+def prepare_generation_inputs(
+    model,
+    tokenizer,
+    prompt: str,
+    *,
+    processor=None,
+    max_length: int = 4096,
+):
+    """Build model inputs for generation.
+
+    - Uses processor.apply_chat_template for VLMs when provided
+    - Else, uses tokenizer's chat_template if available
+    - Falls back to plain text tokenization
+
+    Returns a tuple: (model_inputs_dict, input_length)
+    """
+    prompt = prompt.strip()
+    try:
+        if processor is not None:
+            messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+            proc_out = processor.apply_chat_template(
+                conversation=messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_tensors="pt",
+                return_dict=True,
+            )
+            model_inputs = {k: v.to(model.device) for k, v in proc_out.items()}
+        else:
+            chat_tmpl = getattr(tokenizer, "chat_template", None)
+            if isinstance(chat_tmpl, str) and len(chat_tmpl) > 0:
+                messages = [{"role": "user", "content": prompt}]
+                formatted = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    chat_template=chat_tmpl,
+                )
+                model_inputs = tokenizer(
+                    formatted,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=max_length,
+                ).to(model.device)
+            else:
+                model_inputs = tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=max_length,
+                ).to(model.device)
+    except Exception:
+        model_inputs = tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=max_length,
+        ).to(model.device)
+
+    input_length = model_inputs.input_ids.shape[1]
+    return model_inputs, input_length
+
+
+@torch.no_grad()
 def generate(
     model,
     prompt: str,
     tokenizer,
     max_new_tokens=50,
+    processor=None,
 ):
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=1024,
-    ).to(model.device)
+    model_inputs, input_length = prepare_generation_inputs(
+        model, tokenizer, prompt, processor=processor
+    )
     outputs = model.generate(
-        **inputs,
+        **model_inputs,
         max_new_tokens=max_new_tokens,
         do_sample=True,
         temperature=0.7,
@@ -171,7 +236,11 @@ def generate(
         pad_token_id=tokenizer.eos_token_id,
     )
 
-    out_text = tokenizer.decode(outputs[0]).replace(prompt, "").strip()
+    full_ids = outputs[0]
+    gen_ids = full_ids[input_length:]
+    out_text = tokenizer.decode(gen_ids, skip_special_tokens=False).strip()
+    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>"):
+        out_text = out_text.replace(control_tok, "").strip()
     return out_text
 
 
@@ -188,7 +257,7 @@ def generate_with_ppl(
         truncation=True,
         max_length=1024,
     ).to(model.device)
-    
+
     input_length = inputs.input_ids.shape[1]
 
     outputs = model.generate(

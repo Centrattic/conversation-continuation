@@ -365,7 +365,8 @@ trainer = SFTTrainer(
                                  log_path=experiment_folder /
                                  "mid_completions.json",
                                  test_data_path=Path(data_path),
-                                 every_n_steps=200),
+                                 every_n_steps=200,
+                                 processor=processor if IS_GEMMA_3_VLM else None),
         LiveJSONLogger(log_path=experiment_folder / "log.json")
     ],
 )

@@ -19,6 +19,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 
 # Project imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -57,12 +58,38 @@ DTYPE_MAP = {
     "float32": torch.float32,
 }
 
+# ---------- Helpers ----------
+def truncate_to_next_speaker(text: str, expected_stop: str, other_stop: str) -> str:
+    """Cut model output at first sign of the next speaker.
+    Looks for multiple patterns: [Name], Name:, Name : (case-insensitive), and newlines.
+    """
+    candidates: List[int] = []
+    lowers = text.lower()
+    candidates.append(text.find(expected_stop))
+    candidates.append(text.find(other_stop))
+    for token in [
+        f"{expected_stop.strip('[]')}:",
+        f"{expected_stop.strip('[]')} :",
+        f"{other_stop.strip('[]')}:",
+        f"{other_stop.strip('[]')} :",
+    ]:
+        i = lowers.find(token.lower())
+        candidates.append(i)
+    i_colon = text.find(" : ")
+    candidates.append(i_colon)
+    candidates.append(text.find("\n["))
+    cut = min([i for i in candidates if i is not None and i >= 0], default=-1)
+    if cut >= 0:
+        return text[:cut]
+    return text
+
 # ---------- Runtime State ----------
 class ChatSession:
     def __init__(self, bot_name: str) -> None:
         self.bot_name = bot_name
         self.history: List[str] = []
         self.turns: int = 0
+        self.transcript: List[Dict[str, str]] = []
 
 class ModelManager:
     def __init__(self) -> None:
@@ -76,7 +103,6 @@ class ModelManager:
         for cand in DEFAULT_ADAPTER_CANDIDATES:
             if cand.exists():
                 return cand
-        # Fallback scan
         for p in (PROJECT_ROOT / "models").rglob("lora_adapter"):
             return p
         return None
@@ -99,7 +125,6 @@ class ModelManager:
             low_cpu_mem_usage=True,
             trust_remote_code=True,
         )
-        # Ensure vocab resize if needed
         if base.get_input_embeddings().num_embeddings != len(self.tokenizer):
             base.resize_token_embeddings(len(self.tokenizer), mean_resizing=False)
 
@@ -109,6 +134,19 @@ class ModelManager:
         return {"status": "started", "base": self.base_model_id, "adapter": str(self.adapter_path)}
 
     def stop(self) -> Dict[str, str]:
+        out_dir = PROJECT_ROOT / "convos" / "public"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        for name, sess in sessions.items():
+            if sess.transcript:
+                fname = out_dir / f"{timestamp}_{name}.txt"
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(f"Session: {name}\nTime: {timestamp}\nBase: {self.base_model_id}\nAdapter: {self.adapter_path}\n\n")
+                    for m in sess.transcript:
+                        f.write(f"{m['role']}: {m['content']}\n")
+        for s in sessions.values():
+            s.transcript.clear()
+
         if not self.loaded:
             return {"status": "already_stopped"}
         try:
@@ -133,7 +171,6 @@ sessions: Dict[str, ChatSession] = {
     "owen": ChatSession(OWEN_NAME),
 }
 
-# ---------- Web App ----------
 app = FastAPI(title="Conversation Web App", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -153,7 +190,6 @@ def start(payload: Dict[str, str] = None):
 
 @app.post("/stop")
 def stop():
-    # Reset sessions too
     for s in sessions.values():
         s.history.clear()
         s.turns = 0
@@ -162,7 +198,7 @@ def stop():
 @app.post("/chat")
 def chat(payload: Dict) -> Dict:
     model_manager.ensure_loaded()
-    bot = payload.get("bot")  # "riya" or "owen"
+    bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
     
@@ -173,17 +209,20 @@ def chat(payload: Dict) -> Dict:
 
     session = sessions[bot]
 
-    # Format prompt consistent with sampling scripts
+    speaker_user = OWEN_NAME if bot == "riya" else RIYA_NAME
+    session.transcript.append({"role": speaker_user, "content": message})
+
     if bot == "riya":
-        # User plays FRIEND, get RIYA's reply
         prompt_line = f"\n[{OWEN_NAME}]: {message} \n [{RIYA_NAME}]"
         expected_stop = f"[{OWEN_NAME}]"
+        other_stop = f"[{RIYA_NAME}]"
+        assistant_name = RIYA_NAME
     else:
-        # bot == "owen": user plays RIYA, get Owen's reply
         prompt_line = f"\n[{RIYA_NAME}]: {message} \n [{OWEN_NAME}]"
         expected_stop = f"[{RIYA_NAME}]"
+        other_stop = f"[{OWEN_NAME}]"
+        assistant_name = OWEN_NAME
 
-    # Maintain a short rolling history (like original scripts)
     if session.turns > 8 and session.history:
         session.history.pop(0)
     session.history.append(prompt_line)
@@ -191,7 +230,6 @@ def chat(payload: Dict) -> Dict:
 
     full_prompt = "".join(session.history)
 
-    # Steering
     use_steering = bool(steering.get("enabled"))
     pos = (steering.get("positive") or "").strip()
     neg_csv = (steering.get("negative_csv") or "").strip()
@@ -200,7 +238,6 @@ def chat(payload: Dict) -> Dict:
     max_new = int(payload.get("max_new_tokens") or MAX_NEW_TOKENS)
 
     if use_steering and (pos or neg_list):
-        # Build a weighting dict: positive +1, negatives -1
         weights = {}
         if pos:
             weights[pos] = 1.0
@@ -208,29 +245,22 @@ def chat(payload: Dict) -> Dict:
             weights[n] = -1.0
         steering_vector = generate_steering_vector(model_manager.model, model_manager.tokenizer, weights,
                                                    pos_alpha=2.0, neg_alpha=2.0, layer_from_last=-2)
-        text = generate_with_steering(
+        raw = generate_with_steering(
             model_manager.model, full_prompt, model_manager.tokenizer,
             steering_vector, max_new_tokens=max_new, layer_from_last=-1
         )
     else:
-        # Default path: use perplexity-aware generator for variety
-        text, _ = generate_with_ppl(
+        raw, _ = generate_with_ppl(
             model_manager.model, full_prompt, model_manager.tokenizer, max_new_tokens=max_new
         )
 
-    # Truncate at the next speaker tag
-    idx = text.find(expected_stop)
-    if idx == -1:
-        idx = text.find(f"[{expected_stop[1:2]}")  # crude fallback like original
-    if idx == -1:
-        idx = len(text)
-    text = text[:idx]
-
+    text = truncate_to_next_speaker(raw, expected_stop=expected_stop, other_stop=other_stop)
+    text = text.lstrip(" :")
     text = clean_for_sampling(text)
 
-    # Push back into history
     session.history.append(text)
     session.turns += 1
+    session.transcript.append({"role": assistant_name, "content": text})
 
     return {"response": text}
 
@@ -241,7 +271,6 @@ def index() -> HTMLResponse:
                                .replace("__MAX_NEW__", str(MAX_NEW_TOKENS))
     return HTMLResponse(content=html)
 
-# ---------- Dark UI ----------
 _INDEX_HTML_TEMPLATE = """
 <!doctype html>
 <html>
@@ -274,7 +303,6 @@ _INDEX_HTML_TEMPLATE = """
     .btns { display: grid; gap: 10px; }
     .status { margin-top: 12px; color: var(--subtext); font-size: 14px; }
 
-    /* Right side */
     .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
     .tab { padding: 8px 12px; border-radius: 10px; background: var(--muted); color: var(--text); cursor: pointer; border: 1px solid var(--border); }
     .tab.active { background: var(--accent); }
@@ -319,7 +347,8 @@ _INDEX_HTML_TEMPLATE = """
         </div>
       </div>
 
-      <div id="log" class="log"></div>
+      <div id="log-riya" class="log"></div>
+      <div id="log-owen" class="log" style="display:none"></div>
 
       <div>
         <div class="row">
@@ -332,14 +361,30 @@ _INDEX_HTML_TEMPLATE = """
 
   <script>
     let bot = 'riya';
-    const log = document.getElementById('log');
+    const logRiya = document.getElementById('log-riya');
+    const logOwen = document.getElementById('log-owen');
+
+    // Maintain separate message arrays; render only current bot on tab switch
+    const msgs = { riya: [], owen: [] };
+
+    function render() {
+      const target = bot === 'riya' ? logRiya : logOwen;
+      target.innerHTML = '';
+      for (const m of msgs[bot]) {
+        const d = document.createElement('div');
+        d.className = 'msg ' + m.role;
+        d.textContent = m.name + ': ' + m.text;
+        target.appendChild(d);
+      }
+      target.scrollTop = target.scrollHeight;
+    }
+
+    function currentLog() { return bot === 'riya' ? logRiya : logOwen; }
 
     function add(role, text) {
-      const d = document.createElement('div');
-      d.className = 'msg ' + role;
-      d.textContent = (role === 'me' ? 'You: ' : (bot === 'riya' ? '__RIYA__' : '__OWEN__') + ': ') + text;
-      log.appendChild(d);
-      log.scrollTop = log.scrollHeight;
+      const name = role === 'me' ? 'You' : (bot === 'riya' ? '__RIYA__' : '__OWEN__');
+      msgs[bot].push({ role, text, name });
+      render();
     }
 
     async function call(path, payload) {
@@ -375,11 +420,19 @@ _INDEX_HTML_TEMPLATE = """
       bot = 'riya';
       document.getElementById('tab-riya').classList.add('active');
       document.getElementById('tab-owen').classList.remove('active');
+      logRiya.style.display = '';
+      logOwen.style.display = 'none';
+      document.getElementById('input').value = '';
+      render();
     };
     document.getElementById('tab-owen').onclick = () => {
       bot = 'owen';
       document.getElementById('tab-owen').classList.add('active');
       document.getElementById('tab-riya').classList.remove('active');
+      logOwen.style.display = '';
+      logRiya.style.display = 'none';
+      document.getElementById('input').value = '';
+      render();
     };
 
     async function send() {
@@ -396,9 +449,11 @@ _INDEX_HTML_TEMPLATE = """
           steering: { enabled: steerEnabled, positive: pos, negative_csv: neg },
           max_new_tokens: __MAX_NEW__
         });
-        add('bot', r.response);
+        msgs[bot].push({ role: 'bot', text: r.response, name: (bot === 'riya' ? '__RIYA__' : '__OWEN__') });
+        render();
       } catch (e) {
-        add('bot', 'Error: ' + e.message);
+        msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? '__RIYA__' : '__OWEN__') });
+        render();
       }
     }
     document.getElementById('send').onclick = send;

@@ -48,11 +48,39 @@ from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
 
 # ---------- Config ----------
 DEFAULT_BASE_MODEL = os.environ.get("BASE_MODEL_ID", "mistralai/Mistral-7B-v0.1")
-# Attempt to locate a LoRA adapter by default
-DEFAULT_ADAPTER_CANDIDATES = [
-    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
-    PROJECT_ROOT / "models" / "gemma-3-27b-it" / "gemma-3-27b-it_20250903_122252" / "lora_adapter",
-]
+# Adapter paths will be read from config.js to ensure frontend/backend sync
+def get_adapter_candidates_from_config():
+    """Read adapter paths from config.js to ensure frontend/backend sync"""
+    config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config.js"
+    if not config_path.exists():
+        print("⚠️  config.js not found, using fallback adapter paths")
+        return [
+            PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
+        ]
+    
+    try:
+        with open(config_path, 'r') as f:
+            content = f.read()
+        
+        # Extract adapter paths from config.js
+        import re
+        adapter_matches = re.findall(r"value:\s*['\"]([^'\"]+)['\"]", content)
+        
+        if adapter_matches:
+            return [PROJECT_ROOT / "models" / path for path in adapter_matches]
+        else:
+            print("⚠️  No adapter paths found in config.js, using fallback")
+            return [
+                PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
+            ]
+    except Exception as e:
+        print(f"⚠️  Error reading config.js: {e}, using fallback adapter paths")
+        return [
+            PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
+        ]
+
+# Get adapter candidates from config.js
+DEFAULT_ADAPTER_CANDIDATES = get_adapter_candidates_from_config()
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
 OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
 
@@ -232,19 +260,10 @@ class ModelManager:
         self.model_key: str = "mistral-7b"  # Default model key
 
     def find_default_adapter(self) -> Optional[Path]:
-        # First try the hardcoded candidates
+        # Only try the hardcoded candidates
         for cand in DEFAULT_ADAPTER_CANDIDATES:
             if cand.exists():
                 return cand
-        
-        # Then search more broadly in the models directory
-        models_dir = PROJECT_ROOT / "models"
-        if models_dir.exists():
-            # Look for any lora_adapter directories
-            for p in models_dir.rglob("lora_adapter"):
-                if p.exists() and p.is_dir():
-                    print(f"Found adapter: {p}")
-                    return p
         
         print("No LoRA adapters found in default locations")
         return None

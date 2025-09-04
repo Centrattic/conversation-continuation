@@ -289,16 +289,14 @@
         <div class="panel">
             <div class="title">Controls</div>
             <div class="btns">
-                <button id="cleanup" class="primary">Offload Models</button>
+                <button id="loadAdapter" class="primary">Load Adapter</button>
+                <button id="cleanup" class="primary">Offload Adapter</button>
             </div>
             <div id="status" class="status">Model: stopped</div>
             <div class="adapter-select">
                 <label>Adapter:</label>
                 <select id="adapterSelect">
-                    <option value="mistral-7b/mistral-results-7-27-25/lora_adapter">Mistral 7B (7/27/25)</option>
-                    <option value="mistral-7b/mistral-results-7-6-25/lora_adapter">Mistral 7B (7/6/25)</option>
-                    <option value="gemma-3-27b-it/gemma-3-27b-it_20250903_12225225/lora_adapter">Gemma 3 27B IT (9/3/25)
-                    </option>
+                    <!-- Options will be populated from config.js -->
                 </select>
             </div>
             <div class="steer">
@@ -353,7 +351,7 @@
 
     <script src="./config.js"></script>
     <script>
-        const cfg = window.APP_CONFIG || { riyaName: 'Riya', owenName: 'Owen', maxNewTokens: 80, apiBase: '' };
+        const cfg = window.APP_CONFIG || { riyaName: 'Riya', owenName: 'Owen', maxNewTokens: 80, apiBase: '', adapters: [] };
         const API_BASE = cfg.apiBase || '';
         let bot = 'riya';
         const logRiya = document.getElementById('log-riya');
@@ -361,6 +359,17 @@
 
         document.getElementById('tab-riya').textContent = (cfg.riyaName || 'Riya') + '-bot';
         document.getElementById('tab-owen').textContent = (cfg.owenName || 'Owen') + '-bot';
+
+        // Populate adapter dropdown from config
+        const adapterSelect = document.getElementById('adapterSelect');
+        if (cfg.adapters && cfg.adapters.length > 0) {
+            cfg.adapters.forEach(adapter => {
+                const option = document.createElement('option');
+                option.value = adapter.value;
+                option.textContent = adapter.label;
+                adapterSelect.appendChild(option);
+            });
+        }
 
         const msgs = { riya: [], owen: [] };
 
@@ -411,9 +420,24 @@
             try {
                 const r = await fetch(url);
                 const j = await r.json();
-                document.getElementById('status').textContent = 'Model: ' + (j.loaded === 'True' || j.loaded === true ? 'running' : 'stopped');
+                const isLoaded = j.loaded === 'True' || j.loaded === true;
+                document.getElementById('status').textContent = 'Model: ' + (isLoaded ? 'running' : 'stopped');
+
+                // Update Load Adapter button state
+                const loadButton = document.getElementById('loadAdapter');
+                if (isLoaded) {
+                    loadButton.disabled = true;
+                    loadButton.textContent = 'Adapter Loaded';
+                } else {
+                    loadButton.disabled = false;
+                    loadButton.textContent = 'Load Adapter';
+                }
             } catch (e) {
                 document.getElementById('status').textContent = 'Model: unreachable';
+                // Reset Load Adapter button on error
+                const loadButton = document.getElementById('loadAdapter');
+                loadButton.disabled = false;
+                loadButton.textContent = 'Load Adapter';
             }
         }
 
@@ -422,9 +446,36 @@
             try {
                 await call('/cleanup', {});
                 document.getElementById('status').textContent = 'Model: stopped (cleaned up)';
+
+                // Reset Load Adapter button
+                const loadButton = document.getElementById('loadAdapter');
+                loadButton.disabled = false;
+                loadButton.textContent = 'Load Adapter';
             } catch (e) {
                 alert('Cleanup failed: ' + e.message);
                 refreshStatus();
+            }
+        };
+
+        document.getElementById('loadAdapter').onclick = async () => {
+            const selectedAdapter = document.getElementById('adapterSelect').value;
+            if (!selectedAdapter) {
+                alert('Please select an adapter first');
+                return;
+            }
+
+            document.getElementById('status').textContent = 'Loading adapter...';
+            document.getElementById('loadAdapter').disabled = true;
+
+            try {
+                await call('/start', { adapter_path: selectedAdapter });
+                document.getElementById('status').textContent = 'Model: running';
+                document.getElementById('loadAdapter').disabled = true;
+                document.getElementById('loadAdapter').textContent = 'Adapter Loaded';
+            } catch (e) {
+                alert('Failed to load adapter: ' + e.message);
+                document.getElementById('status').textContent = 'Model: failed to load';
+                document.getElementById('loadAdapter').disabled = false;
             }
         };
 

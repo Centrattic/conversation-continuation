@@ -337,6 +337,8 @@
                 <div class="tabs">
                     <div class="tab active" id="tab-riya"></div>
                     <div class="tab" id="tab-owen"></div>
+                    <button id="clearChat" class="danger"
+                        style="margin-left: auto; padding: 6px 12px; font-size: 12px;">Clear chat</button>
                 </div>
             </div>
 
@@ -352,7 +354,7 @@
         </div>
     </div>
 
-    <script src="./config.js"></script>
+    <script src="/config.js"></script>
     <script>
         const cfg = window.APP_CONFIG || { riyaName: 'Riya', owenName: 'Owen', maxNewTokens: 80, apiBase: '', adapters: [] };
         const API_BASE = cfg.apiBase || '';
@@ -577,6 +579,14 @@
             document.getElementById('alphaValue').textContent = e.target.value;
         });
 
+        // Clear chat functionality
+        document.getElementById('clearChat').onclick = () => {
+            if (confirm(`Clear ${bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')}-bot chat?`)) {
+                msgs[bot] = [];
+                render();
+            }
+        };
+
         document.getElementById('login').onclick = async () => {
             const pw = (document.getElementById('pw').value || '').slice(0, 256);
             try {
@@ -640,6 +650,19 @@
             // Resize panels after they become visible
             setTimeout(resizePanelsToEqualHeight, 100);
         }
+
+        // Auto-skip authentication for local development
+        function checkLocalDevelopment() {
+            // Check if we're running locally (localhost or 127.0.0.1)
+            if (window.location.hostname === 'localhost') {
+                console.log('🚀 Local development detected - skipping authentication');
+                showApp();
+                refreshStatus();
+            }
+        }
+
+        // Run local development check when page loads
+        window.addEventListener('load', checkLocalDevelopment);
     </script>
 </body>
 

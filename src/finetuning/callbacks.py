@@ -73,7 +73,9 @@ class SampleGenerationCallback(TrainerCallback):
                                    prompt_new,
                                    self.tokenizer,
                                    max_new_tokens=self.max_new_tokens,
-                                   processor=self.processor)
+                                   processor=self.processor,
+                                   is_instruct=True,
+                                   deployment=False)
             completion_new = decoded_new
 
             # saving both a new prompt for fun, and a constant prompt to track progress over time
@@ -83,7 +85,9 @@ class SampleGenerationCallback(TrainerCallback):
                                      prompt_const,
                                      self.tokenizer,
                                      max_new_tokens=self.max_new_tokens,
-                                     processor=self.processor)
+                                     processor=self.processor,
+                                     is_instruct=True,
+                                     deployment=False)
             completion_const = decoded_const  # decoded_const[len(prompt_const)-2:].strip() why -2 idk, shouldnt need now
 
             # print(f"\n[STEP {state.global_step}] Sample Completion:\n{decoded}\n" + "-"*50)

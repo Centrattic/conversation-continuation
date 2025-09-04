@@ -50,6 +50,7 @@ INSTRUCT_SYSTEM_PROMPT = "You are a chat model trained to simulate conversations
 # The user prompt contains the conversation history and question
 # This will be formatted as: {conversation_history}\n\nWhat does {next_speaker} say next?
 INSTRUCT_USER_PROMPT_TEMPLATE = "{conversation_history}\n\nWhat does {next_speaker} say next?"
+INSTRUCT_USER_PROMPT_TEMPLATE_GENERAL = "{conversation_history}\n\nHow does the conversation continue?"
 
 MODEL_CONFIGS = {
     "mistral-7b": {

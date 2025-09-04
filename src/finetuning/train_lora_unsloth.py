@@ -406,20 +406,39 @@ trainer = SFTTrainer(
     ],
 )
 
-# Handle continuation of training
-adapter_path = get_lora_adapter_path(args.model, experiment_name)
-if args.continue_training and adapter_path.exists():
-    print(f"Continuing LoRA from {adapter_path}")
-    trainer.train(resume_from_checkpoint=str(adapter_path))
+# Handle continuation of training by resuming from latest checkpoint in training_output
+def get_latest_checkpoint_dir(output_dir: Path) -> Path | None:
+    """Return the latest checkpoint dir like checkpoint-1234 inside output_dir, or None."""
+    if not output_dir.exists():
+        return None
+    latest_step = -1
+    latest_path: Path | None = None
+    for child in output_dir.iterdir():
+        if child.is_dir() and child.name.startswith("checkpoint-"):
+            try:
+                step = int(child.name.split("-")[-1])
+                if step > latest_step:
+                    latest_step = step
+                    latest_path = child
+            except Exception:
+                pass
+    return latest_path
+
+latest_ckpt = None
+if args.continue_training:
+    ckpt_root = experiment_folder / "training_output"
+    latest_ckpt = get_latest_checkpoint_dir(ckpt_root)
+    if latest_ckpt is not None:
+        print(f"Continuing training from latest checkpoint: {latest_ckpt}")
+        trainer.train(resume_from_checkpoint=str(latest_ckpt))
+    else:
+        print("No checkpoints found in training_output; starting new training...")
+        trainer.train()
 else:
     print("Starting new LoRA training...")
     trainer.train()
 
-# Save the model
-model.save_pretrained(str(adapter_path))
-tokenizer.save_pretrained(str(adapter_path))
-
-print(f"LoRA training complete. Model saved to {adapter_path}")
+print("LoRA training complete. Checkpoints saved under training_output.")
 print(
     f"Experiment configuration saved to {experiment_folder / 'experiment_config.json'}"
 )

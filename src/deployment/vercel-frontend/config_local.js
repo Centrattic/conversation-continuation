@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
-    // This will be auto-updated by the Python app when ngrok starts
-    apiBase: 'https://78e9541123c0.ngrok-free.app',
+    // Local development - points to your local FastAPI server
+    apiBase: 'http://localhost:9100',
     riyaName: 'Riya',
     owenName: 'Owen',
     maxNewTokens: 150,
@@ -20,5 +20,3 @@ window.APP_CONFIG = {
         }
     ]
 };
-
-

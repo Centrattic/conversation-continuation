@@ -7,7 +7,7 @@ from datetime import datetime
 import io
 import requests
 from PIL import Image
-from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER, INSTRUCT_SYSTEM_PROMPT, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
+from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER, INSTRUCT_SYSTEM_PROMPT, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, RIYA_NAME, FRIEND_NAME
 
 
 def load_image(img_ref: str):  # for vlms
@@ -154,6 +154,7 @@ def get_latest_experiment(model_key: str) -> Optional[str]:
 
 # Generation functions (keeping existing functionality)
 @torch.no_grad()
+
 def prepare_generation_inputs(
     model,
     tokenizer,
@@ -161,25 +162,29 @@ def prepare_generation_inputs(
     *,
     processor=None,
     max_length: int = 4096,
+    is_instruct=False,
+    target_speaker=None,
 ):
     """Build model inputs for generation.
 
     - Uses processor.apply_chat_template for VLMs when provided
     - Else, uses tokenizer's chat_template if available
     - Falls back to plain text tokenization
+    - For instruct models: formats with chat template and forces next speaker token
+    - For base models: handles conversation history parsing and returns stop tokens
 
-    Returns a tuple: (model_inputs_dict, input_length)
+    Returns a tuple: (model_inputs_dict, input_length, stop_tokens_dict)
     """
     prompt = prompt.strip()
-    try:
-        if processor is not None:
-            messages = [{
-                "role": "user",
-                "content": [{
-                    "type": "text",
-                    "text": prompt
-                }]
-            }]
+
+    # For instruct models, format the prompt using chat template
+    if is_instruct:
+        messages = format_instruct_prompt(prompt,
+                                          target_speaker=target_speaker)
+
+        # Use processor if available, otherwise fall back to tokenizer
+        if processor is not None and hasattr(processor, 'apply_chat_template'):
+            print(f"✅ Using processor: {type(processor)}")
             proc_out = processor.apply_chat_template(
                 conversation=messages,
                 add_generation_prompt=True,
@@ -189,29 +194,25 @@ def prepare_generation_inputs(
             )
             model_inputs = {k: v.to(model.device) for k, v in proc_out.items()}
         else:
-            chat_tmpl = getattr(tokenizer, "chat_template", None)
-            if isinstance(chat_tmpl, str) and len(chat_tmpl) > 0:
-                messages = [{"role": "user", "content": prompt}]
-                formatted = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    chat_template=chat_tmpl,
-                )
-                model_inputs = tokenizer(
-                    formatted,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=max_length,
-                ).to(model.device)
-            else:
-                model_inputs = tokenizer(
-                    prompt,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=max_length,
-                ).to(model.device)
-    except Exception:
+            raise ValueError("No processor available")
+        
+        # debug
+        print("🔍 DEBUG prepare_generation_inputs (instruct):")
+        print(f"  Messages: {messages}")
+        print(f"  Model inputs: {model_inputs}")
+        print("=" * 50)
+    else:
+        # For base models, add the target speaker token to the prompt
+        if target_speaker:
+            target_token = RIYA_SPEAKER_TOKEN if target_speaker == RIYA_NAME else FRIEND_SPEAKER_TOKEN
+            prompt = f"{prompt}\n{target_token}"
+
+        # DEBUG: Print base model prompt
+        print("🔍 DEBUG prepare_generation_inputs (base):")
+        print(f"  Target speaker: {target_speaker}")
+        print(f"  Final prompt: {repr(prompt)}")
+        print("=" * 50)
+
         model_inputs = tokenizer(
             prompt,
             return_tensors="pt",
@@ -223,8 +224,31 @@ def prepare_generation_inputs(
         input_ids = model_inputs.input_ids
     except AttributeError:
         input_ids = model_inputs["input_ids"]
+
     input_length = input_ids.shape[1]
+
     return model_inputs, input_length
+
+
+def process_generation_output(
+    generated_text: str,
+    is_instruct: bool = False,
+    stop_tokens: Dict[str, str] = None,
+) -> str:
+    """Process the generated text output, handling both model types."""
+    # Clean up control tokens
+    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>"):
+        generated_text = generated_text.replace(control_tok, "").strip()
+
+    # For both base and instruct models, truncate at next speaker and clean up
+    if stop_tokens:
+        generated_text = truncate_to_next_speaker(
+            generated_text,
+            expected_stop=stop_tokens["expected_stop"],
+            other_stop=stop_tokens["other_stop"])
+        generated_text = generated_text.lstrip(" :")
+
+    return generated_text
 
 
 @torch.no_grad()
@@ -236,16 +260,18 @@ def generate(
     processor=None,
     is_instruct=False,
     target_speaker=None,
+    deployment=True,
 ):
     """Generate text, handling both base and instruct models."""
-    if is_instruct and target_speaker:
-        # For instruct models, format the prompt properly
-        prompt = format_instruct_prompt(prompt, target_speaker)
-
-    model_inputs, input_length = prepare_generation_inputs(model,
-                                                           tokenizer,
-                                                           prompt,
-                                                           processor=processor)
+    model_inputs, input_length = prepare_generation_inputs(
+        model,
+        tokenizer,
+        prompt,
+        processor=processor,
+        is_instruct=is_instruct,
+        target_speaker=target_speaker,
+    )
+    
     outputs = model.generate(
         **model_inputs,
         max_new_tokens=max_new_tokens,
@@ -256,19 +282,34 @@ def generate(
         pad_token_id=tokenizer.eos_token_id,
     )
 
+    print("🔍 DEBUG generate (instruct):")
+    print(f"  Outputs: {outputs}")
+    print("=" * 50)
+
     full_ids = outputs[0]
     gen_ids = full_ids[input_length:]
     out_text = tokenizer.decode(gen_ids, skip_special_tokens=False).strip()
-    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>"):
-        out_text = out_text.replace(control_tok, "").strip()
 
-    # For instruct models, force the target speaker token
-    if is_instruct and target_speaker:
-        out_text = force_speaker_token_after_generation(
-            out_text, target_speaker, tokenizer)
+    print("🔍 DEBUG generate (instruct):")
+    print(f"  Out text: {out_text}")
+    print("=" * 50)
 
-    return out_text
+    if target_speaker:
+        stop_tokens = get_stop_tokens_for_speaker(target_speaker)
 
+    if deployment:
+        return_out_text = process_generation_output(
+            out_text,
+            is_instruct,
+            stop_tokens,
+        )
+    else:
+        return_out_text = out_text
+    print("🔍 DEBUG generate (instruct):")
+    print(f"  Return out text: {return_out_text}")
+    print("=" * 50)
+
+    return return_out_text
 
 @torch.no_grad()
 def generate_with_ppl(
@@ -276,18 +317,20 @@ def generate_with_ppl(
     prompt: str,
     tokenizer,
     max_new_tokens=50,
+    is_instruct=False,
+    target_speaker=None,
 ):
-    inputs = tokenizer(
+    """Generate text with perplexity calculation, handling both base and instruct models."""
+    model_inputs, input_length, stop_tokens = prepare_generation_inputs(
+        model,
+        tokenizer,
         prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=1024,
-    ).to(model.device)
-
-    input_length = inputs.input_ids.shape[1]
+        is_instruct=is_instruct,
+        target_speaker=target_speaker,
+    )
 
     outputs = model.generate(
-        **inputs,
+        **model_inputs,
         max_new_tokens=max_new_tokens,
         do_sample=True,
         temperature=0.7,
@@ -316,6 +359,8 @@ def generate_with_ppl(
     perplexity = torch.exp(avg_nll)
 
     out_text = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+
+    out_text = process_generation_output(out_text, is_instruct, stop_tokens)
     return out_text, perplexity.item()
 
 
@@ -325,11 +370,16 @@ def generate_with_activations(
     prompt: str,
     tokenizer,
     max_new_tokens=50,
+    is_instruct=False,
+    target_speaker=None,
 ):
-    inputs = tokenizer(prompt,
-                       return_tensors="pt",
-                       truncation=True,
-                       max_length=1024).to(model.device)
+    """Generate text with activation tracking, handling both base and instruct models."""
+    model_inputs, input_length, stop_tokens = prepare_generation_inputs(
+        model,
+        tokenizer,
+        prompt,
+        is_instruct=is_instruct,
+        target_speaker=target_speaker)
 
     activations = []
 
@@ -345,7 +395,7 @@ def generate_with_activations(
     # etc.
 
     outputs = model.generate(
-        **inputs,
+        **model_inputs,
         max_new_tokens=max_new_tokens,
         do_sample=True,  # beam search
         temperature=0.7,
@@ -357,6 +407,12 @@ def generate_with_activations(
     # remove hook
     h.remove()
     out_text = tokenizer.decode(outputs[0]).replace(prompt, "").strip()
+
+    out_text = process_generation_output(
+        out_text,
+        is_instruct,
+        stop_tokens,
+    )
     return out_text, activations
 
 
@@ -372,16 +428,13 @@ def generate_with_steering(
     target_speaker=None,
 ):
     """Generate text with steering, handling both base and instruct models."""
-    if is_instruct and target_speaker:
-        # For instruct models, format the prompt properly
-        prompt = format_instruct_prompt(prompt, target_speaker)
-
-    inputs = tokenizer(
+    model_inputs, input_length, stop_tokens = prepare_generation_inputs(
+        model,
+        tokenizer,
         prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=1024,
-    ).to(model.device)
+        is_instruct=is_instruct,
+        target_speaker=target_speaker,
+    )
 
     def add_vector_hook(module, input, output):  # what does input do here
         # output shape: [batch_size, seq_len, hidden_size]
@@ -405,7 +458,7 @@ def generate_with_steering(
 
     # If I add activation hook here as well, could do TDA with steering
     outputs = model.generate(  # first forward pass of generate ingests prompt
-        **inputs,
+        **model_inputs,
         max_new_tokens=max_new_tokens,
         do_sample=True,
         temperature=0.7,
@@ -418,12 +471,32 @@ def generate_with_steering(
     h.remove()
     out_text = tokenizer.decode(outputs[0]).replace(prompt, "").strip()
 
-    # For instruct models, force the target speaker token
-    if is_instruct and target_speaker:
-        out_text = force_speaker_token_after_generation(
-            out_text, target_speaker, tokenizer)
+    return process_generation_output(out_text, is_instruct, stop_tokens)
 
-    return out_text
+
+def get_stop_tokens_for_speaker(target_speaker: str) -> Dict[str, str]:
+    """Get stop tokens for a given target speaker.
+    
+    Args:
+        target_speaker: The speaker who should respond next (RIYA_NAME or FRIEND_NAME)
+    
+    Returns:
+        Dict with 'expected_stop' and 'other_stop' tokens
+        - expected_stop: The other speaker (when to stop)
+        - other_stop: cut off version of speaker tokens for base models that are bad at formatting
+    """
+    if target_speaker == RIYA_NAME:  # stop when Friend starts speaking
+        other_speaker_token = FRIEND_SPEAKER_TOKEN
+        cut_off_speaker_token = FRIEND_SPEAKER_TOKEN[:2]
+    else:  # stop when Riya starts speaking
+        other_speaker_token = RIYA_SPEAKER_TOKEN
+        cut_off_speaker_token = FRIEND_SPEAKER_TOKEN[:2]
+
+    return {
+        "expected_stop":
+        other_speaker_token,  # Stop when the other speaker starts
+        "other_stop": cut_off_speaker_token  # Same as expected_stop
+    }
 
 
 def detect_model_type(model_key: str) -> str:
@@ -434,39 +507,56 @@ def detect_model_type(model_key: str) -> str:
 
 
 def format_instruct_prompt(conversation_history: str,
-                           next_speaker: str,
-                           system_prompt: str = None) -> str:
-    """Format prompt for instruct models using system prompt and conversation history."""
+                           system_prompt: str = None,
+                           target_speaker: str = None) -> str:
+    """Format prompt for instruct models using the proper chat template."""
     if system_prompt is None:
         system_prompt = INSTRUCT_SYSTEM_PROMPT.format(
             FRIEND_SPEAKER_TOK=FRIEND_SPEAKER_TOKEN,
             RIYA_SPEAKER_TOK=RIYA_SPEAKER_TOKEN)
+    
+    # Format exactly like in training:
+    # 1. System prompt
+    # 2. Conversation history + "How does the conversation continue?"
+    # 3. Assistant response with target speaker token
 
-    # Format the conversation history with proper speaker tokens
-    formatted_history = conversation_history.strip()
+    messages = [{
+        "role": "system",
+        "content": [{
+            "type": "text",
+            "text": system_prompt
+        }]
+    }, {
+        "role":
+        "user",
+        "content": [{
+            "type":
+            "text",
+            "text":
+            f"{conversation_history.strip()}\n\nHow does the conversation continue?"
+        }]
+    }]
 
-    # Create the full prompt
-    full_prompt = f"{system_prompt}\n\n{formatted_history}\n\nWhat does {next_speaker} say next?"
-    return full_prompt
+    # # Add assistant role with target speaker token if specified
+    # if target_speaker:
+    #     target_token = RIYA_SPEAKER_TOKEN if target_speaker == RIYA_NAME else FRIEND_SPEAKER_TOKEN
+    #     messages.append({
+    #         "role": "assistant",
+    #         "content": [{
+    #             "type": "text",
+    #             "text": target_token
+    #         }]
+    #     })
 
+    # DEBUG: Print the formatted messages
+    print("🔍 DEBUG format_instruct_prompt:")
+    print(f"  Target speaker: {target_speaker}")
+    print(f"  Conversation history: {conversation_history.strip()}")
+    print(f"  System prompt: {system_prompt}")
+    print(f"  Messages: {messages}")
+    print("=" * 50)
 
-def force_speaker_token_after_generation(generated_text: str,
-                                         target_speaker: str,
-                                         tokenizer) -> str:
-    """Force the target speaker token to appear after generation for instruct models."""
-    # Clean up any existing speaker tokens at the end
-    generated_text = generated_text.strip()
-
-    # Remove any trailing speaker tokens
-    for token in [RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN]:
-        if generated_text.endswith(token):
-            generated_text = generated_text[:-len(token)].strip()
-
-    # Add the target speaker token
-    target_token = RIYA_SPEAKER_TOKEN if target_speaker == "Riya" else FRIEND_SPEAKER_TOKEN
-    generated_text = f"{generated_text}\n{target_token}"
-
-    return generated_text
+    return messages
 
 
 def truncate_to_next_speaker(text: str, expected_stop: str,

@@ -529,22 +529,32 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> Dict[str, str]:
+    """Ultra-safe health check that can never fail"""
     try:
-        print(f"🔍 Health check called - model_manager.loaded: {model_manager.loaded}")
-        response = {"ok": "true", "loaded": str(model_manager.loaded)}
-        if model_manager.loaded:
-            response.update({
-                "model_type": model_manager.model_type,
-                "model_key": model_manager.model_key,
-                "base_model": model_manager.base_model_id,
-                "adapter": str(model_manager.adapter_path) if model_manager.adapter_path else None
-            })
-        print(f"🔍 Health check response: {response}")
+        # Start with a basic response that always works
+        response = {"ok": "true", "loaded": "False", "server": "running"}
+        
+        try:
+            if hasattr(model_manager, 'loaded'):
+                response["loaded"] = str(model_manager.loaded)
+                
+                if model_manager.loaded:
+                    # Safely add model info
+                    if hasattr(model_manager, 'model_type'):
+                        response["model_type"] = str(model_manager.model_type)
+                    if hasattr(model_manager, 'model_key'):
+                        response["model_key"] = str(model_manager.model_key)
+                    if hasattr(model_manager, 'base_model_id'):
+                        response["base_model"] = str(model_manager.base_model_id)
+                    if hasattr(model_manager, 'adapter_path') and model_manager.adapter_path:
+                        response["adapter"] = str(model_manager.adapter_path)
+        except Exception as model_error:
+            response["model_error"] = str(model_error)
+            
         return response
     except Exception as e:
-        print(f"❌ Health check error: {e}")
-        # Return a basic health response even if model_manager has issues
-        return {"ok": "true", "loaded": "False", "error": str(e)}
+        # This should never happen, but just in case
+        return {"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}
 
 
 @app.get("/ping")
@@ -557,6 +567,12 @@ def ping() -> Dict[str, str]:
 def test() -> Dict[str, str]:
     """Simple test endpoint that always returns JSON"""
     return {"test": "ok", "message": "Test endpoint working"}
+
+
+@app.get("/health-simple")
+def health_simple() -> Dict[str, str]:
+    """Ultra-simple health check that never touches model_manager"""
+    return {"ok": "true", "loaded": "False", "message": "Simple health check working"}
 
 
 @app.get("/debug")

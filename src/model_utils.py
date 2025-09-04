@@ -260,7 +260,6 @@ def prepare_generation_inputs(
 
 def process_generation_output(
     generated_text: str,
-    is_instruct: bool = False,
     target_speaker: str = None,
     stop_tokens: Dict[str, str] = None,
 ) -> List[str]:
@@ -285,6 +284,8 @@ def process_generation_output(
                                 == RIYA_NAME else FRIEND_SPEAKER_TOKEN)
 
         generated_speaker_text = target_speaker_token + generated_text
+
+        print(f"🔍 DEBUG: generated_speaker_text: {generated_speaker_text}")
 
         messages = [
                 part.strip() for part in generated_speaker_text.split(target_speaker_token)
@@ -355,7 +356,6 @@ def generate(
     if deployment:
         messages = process_generation_output(
             out_text,
-            is_instruct,
             target_speaker,
             stop_tokens,
         )
@@ -414,7 +414,7 @@ def generate_with_ppl(
 
     out_text = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
 
-    out_text = process_generation_output(out_text, is_instruct, stop_tokens)
+    out_text = process_generation_output(out_text, target_speaker, stop_tokens)
     return out_text, perplexity.item()
 
 
@@ -466,7 +466,7 @@ def generate_with_activations(
 
     out_text = process_generation_output(
         out_text,
-        is_instruct,
+        target_speaker,
         stop_tokens,
     )
     return out_text, activations
@@ -562,7 +562,6 @@ def generate_with_steering(
 
     return process_generation_output(
         out_text,
-        is_instruct,
         target_speaker,
         stop_tokens,
     )

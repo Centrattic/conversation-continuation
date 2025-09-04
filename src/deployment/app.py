@@ -50,9 +50,8 @@ from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
 DEFAULT_BASE_MODEL = os.environ.get("BASE_MODEL_ID", "mistralai/Mistral-7B-v0.1")
 # Attempt to locate a LoRA adapter by default
 DEFAULT_ADAPTER_CANDIDATES = [
-    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-27-25" / "lora_adapter",
     PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
-    PROJECT_ROOT / "models" / "gemma-3-27b-it" / "gemma-3-27b-it_20250903_12225225" / "lora_adapter",
+    PROJECT_ROOT / "models" / "gemma-3-27b-it" / "gemma-3-27b-it_20250903_122252" / "lora_adapter",
 ]
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
 OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
@@ -60,7 +59,7 @@ OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
 # Security - Restrict to your Vercel domain
 ALLOWED_ORIGINS = [
     "https://conversation-continuation.vercel.app",  # Remove trailing slash
-    "http://localhost:9000",  # For local development
+    "http://localhost:9100",  # For local development
 ]
 
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "80"))

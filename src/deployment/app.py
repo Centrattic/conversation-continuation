@@ -86,16 +86,43 @@ async def create_ngrok_tunnel():
             ngrok.set_auth_token(auth_token)
             print("✅ ngrok auth token set")
         
-        # Create HTTP tunnel to localhost:9100 using pyngrok
-        print("🔌 Creating ngrok tunnel to localhost:9100...")
-        # For pyngrok, we use connect() method with port and protocol
-        ngrok_listener = ngrok.connect(9100, "http")
+        # Try to use ngrok config file for persistent settings
+        config_path = PROJECT_ROOT / "src" / "deployment" / "ngrok.yml"
+        if config_path.exists():
+            print("📁 Using ngrok configuration file...")
+            # For pyngrok, we can specify the config file
+            ngrok_listener = ngrok.connect(9100, "http", config_file=str(config_path))
+        else:
+            print("🔌 Creating basic ngrok tunnel to localhost:9100...")
+            ngrok_listener = ngrok.connect(9100, "http")
         
         # Get the public URL from the listener
-        # In pyngrok, the tunnel object has a public_url attribute
         public_url = ngrok_listener.public_url
         print(f"🚀 ngrok tunnel created: {public_url}")
-        print(f"📝 Update your Vercel config.js with: apiBase: '{public_url}'")
+        
+        # Auto-update Vercel config file
+        vercel_config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config.js"
+        if vercel_config_path.exists():
+            try:
+                with open(vercel_config_path, 'r') as f:
+                    content = f.read()
+                
+                # Update the apiBase URL
+                import re
+                new_content = re.sub(
+                    r"apiBase:\s*['\"][^'\"]*['\"]",
+                    f"apiBase: '{public_url}'",
+                    content
+                )
+                
+                with open(vercel_config_path, 'w') as f:
+                    f.write(new_content)
+                
+                print(f"✅ Auto-updated Vercel config.js with new ngrok URL")
+            except Exception as e:
+                print(f"⚠️  Could not auto-update Vercel config: {e}")
+        
+        print(f"📝 Your Vercel config.js has been updated with: apiBase: '{public_url}'")
         
         return public_url
         
@@ -112,7 +139,7 @@ async def cleanup_ngrok():
             from pyngrok import ngrok
             
             # Get the URL before disconnecting
-            tunnel_url = ngrok_listener.url()
+            tunnel_url = ngrok_listener.public_url
             
             # Disconnect the specific tunnel
             ngrok.disconnect(tunnel_url)
@@ -794,5 +821,20 @@ _INDEX_HTML_TEMPLATE = """
 
 if __name__ == "__main__":
     print("🚀 Starting Conversation App...")
-    print("🌐 Starting FastAPI server on localhost:9100...")
-    uvicorn.run("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)
+    
+    # Start ngrok tunnel
+    async def start_with_ngrok():
+        print("🔌 Creating ngrok tunnel...")
+        tunnel_url = await create_ngrok_tunnel()
+        if tunnel_url:
+            print(f"✅ ngrok tunnel ready: {tunnel_url}")
+        else:
+            print("⚠️  ngrok tunnel creation failed, continuing without tunnel")
+        
+        print("🌐 Starting FastAPI server on localhost:9100...")
+        config = uvicorn.Config("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)
+        server = uvicorn.Server(config)
+        await server.serve()
+    
+    # Run the async startup
+    asyncio.run(start_with_ngrok())

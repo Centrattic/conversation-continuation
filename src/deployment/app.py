@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -341,35 +341,12 @@ class ModelManager:
                 print(f"⚠️  Failed to align processor tokenizer: {e}")
 
         # For large models like Gemma-27B, use quantization and single-GPU
+        quantization_config = True
+        
         if "27b" in self.base_model_id.lower():
-            print(
-                "🔧 Large model detected, using 4-bit quantization and single-GPU"
-            )
-
-            # Import quantization libraries
-            try:
-                from transformers import BitsAndBytesConfig
-                print("🔧 Using BitsAndBytes for 4-bit quantization")
-
-                # Configure 4-bit quantization
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch_dtype,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
-                )
-
-                # Force single-GPU usage for large models
-                device_map = "cuda:0"
-
-            except Exception as e:
-                print(
-                    f"⚠️  Error using BitsAndBytes for 4-bit quantization: {e}"
-                )
+          device_map = "cuda:0"
         else:
-            # For smaller models, use normal settings
-            quantization_config = None
-            device_map = DEVICE_MAP
+          device_map = DEVICE_MAP
 
         print(f"🔧 Loading base model with device_map: {device_map}")
 
@@ -379,7 +356,7 @@ class ModelManager:
             base, _ = FastLanguageModel.from_pretrained(
                 model_name=self.base_model_id,
                 max_seq_length=4096,
-                dtype=torch.bfloat16,  # Use bfloat16 consistently
+                dtype=torch.bfloat16,  # Use consistent dtype from environment/config
                 load_in_4bit=True if quantization_config else False,
                 load_in_8bit=False,
             )
@@ -387,7 +364,7 @@ class ModelManager:
             base = AutoModelForCausalLM.from_pretrained(
                 self.base_model_id,
                 device_map=device_map,
-                torch_dtype=torch_dtype,
+                torch_dtype=torch.bfloat16,
                 low_cpu_mem_usage=True,
                 trust_remote_code=True,
                 quantization_config=quantization_config,
@@ -400,7 +377,7 @@ class ModelManager:
         # Load LoRA adapter
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
         self.model.eval()
-        self.model = self.model.to(torch.bfloat16)
+        # self.model = self.model.to(torch.bfloat16)  # This was causing performance issues!
 
         # Warm up the model to load checkpoint shards and avoid slow first inference
         print("🔥 Warming up model to preload checkpoint shards...")
@@ -528,7 +505,7 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> Dict[str, str]:
+def health() -> JSONResponse:
     """Ultra-safe health check that can never fail"""
     try:
         # Start with a basic response that always works
@@ -551,10 +528,10 @@ def health() -> Dict[str, str]:
         except Exception as model_error:
             response["model_error"] = str(model_error)
             
-        return response
+        return JSONResponse(content=response, media_type="application/json")
     except Exception as e:
         # This should never happen, but just in case
-        return {"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}
+        return JSONResponse(content={"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}, media_type="application/json")
 
 
 @app.get("/ping")
@@ -576,7 +553,7 @@ def health_simple() -> Dict[str, str]:
 
 
 @app.get("/status")
-def status() -> Dict[str, str]:
+def status() -> JSONResponse:
     """Alternative health check endpoint with different name"""
     try:
         # Start with a basic response that always works
@@ -600,10 +577,10 @@ def status() -> Dict[str, str]:
         except Exception as model_error:
             response["model_error"] = str(model_error)
             
-        return response
+        return JSONResponse(content=response, media_type="application/json")
     except Exception as e:
         # This should never happen, but just in case
-        return {"ok": "true", "loaded": "False", "error": "status_check_failed", "message": str(e)}
+        return JSONResponse(content={"ok": "true", "loaded": "False", "error": "status_check_failed", "message": str(e)}, media_type="application/json")
 
 
 @app.get("/debug")

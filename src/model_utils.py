@@ -583,7 +583,7 @@ def get_stop_tokens_for_speaker(target_speaker: str) -> Dict[str, str]:
         cut_off_speaker_token = FRIEND_SPEAKER_TOKEN[:2]
     else:  # stop when Riya starts speaking
         other_speaker_token = RIYA_SPEAKER_TOKEN
-        cut_off_speaker_token = FRIEND_SPEAKER_TOKEN[:2]
+        cut_off_speaker_token = RIYA_SPEAKER_TOKEN[:2]
 
     return {
         "expected_stop":

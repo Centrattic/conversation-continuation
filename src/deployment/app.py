@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -56,6 +56,12 @@ DEFAULT_ADAPTER_CANDIDATES = [
 ]
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
 OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
+
+# Security - Restrict to your Vercel domain
+ALLOWED_ORIGINS = [
+    "https://conversation-continuation.vercel.app",  # Remove trailing slash
+    "http://localhost:9000",  # For local development
+]
 
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "80"))
 DEVICE_MAP = os.environ.get("DEVICE_MAP", "auto")
@@ -165,6 +171,23 @@ def signal_handler(signum, frame):
 atexit.register(lambda: asyncio.run(cleanup_ngrok()) if ngrok_listener else None)
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
+# Security helpers
+async def verify_origin(origin: str = Header(None), referer: str = Header(None)):
+    """Verify request origin is from allowed domains"""
+    # Check Origin header first, then Referer as fallback
+    request_origin = origin or referer
+    
+    if not request_origin:
+        # Allow requests without origin (like from Postman/testing)
+        return True
+    
+    # Extract domain from origin/referer
+    for allowed_origin in ALLOWED_ORIGINS:
+        if allowed_origin in request_origin:
+            return True
+    
+    raise HTTPException(status_code=403, detail="Origin not allowed")
 
 # helpers
 def truncate_to_next_speaker(text: str, expected_stop: str, other_stop: str) -> str:
@@ -353,7 +376,7 @@ def start(payload: Dict[str, str] = None):
     return {"status": "deprecated", "message": "Models are now auto-loaded on first chat"}
 
 @app.post("/cleanup")
-def cleanup():
+def cleanup(origin: str = Depends(verify_origin)):
     """Clean up model from memory and clear CUDA cache."""
     for s in sessions.values():
         s.history.clear()
@@ -366,7 +389,7 @@ def stop():
     return cleanup()
 
 @app.post("/chat")
-def chat(payload: Dict) -> Dict:
+def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
@@ -472,352 +495,19 @@ def chat(payload: Dict) -> Dict:
 
 @app.get("/")
 def index() -> HTMLResponse:
-    html = _INDEX_HTML_TEMPLATE.replace("__RIYA__", RIYA_NAME) \
-                               .replace("__OWEN__", OWEN_NAME) \
-                               .replace("__MAX_NEW__", str(MAX_NEW_TOKENS))
-    return HTMLResponse(content=html)
-
-_INDEX_HTML_TEMPLATE = """
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Conversation</title>
-  <style>
-    :root {
-      --bg: #0b0b0f;
-      --card: #121218;
-      --muted: #1a1a22;
-      --text: #e9e9ef;
-      --subtext: #a3a3b2;
-      --accent: #7c5cff;
-      --accent2: #28d1b6;
-      --danger: #ff4d67;
-      --ok: #3ddc97;
-      --border: #2a2a36;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-    .wrap { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 20px; min-height: 100vh; }
-    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-    .title { font-weight: 700; font-size: 18px; margin-bottom: 12px; }
-    button { background: var(--muted); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 600; }
-    button.primary { background: linear-gradient(135deg, var(--accent), #5243ff); border: none; }
-    button.danger { background: linear-gradient(135deg, var(--danger), #ff2750); border: none; }
-    button:disabled { opacity: .6; cursor: not-allowed; }
-    .btns { display: grid; gap: 10px; }
-    .status { margin-top: 12px; color: var(--subtext); font-size: 14px; }
-
-    .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-    .tab { padding: 8px 12px; border-radius: 10px; background: var(--muted); color: var(--text); cursor: pointer; border: 1px solid var(--border); }
-    .tab.active { background: var(--accent); }
-
-    .chat { display: grid; grid-template-rows: auto 1fr auto; height: calc(100vh - 40px); gap: 12px; }
-    .log { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; overflow-y: auto; min-height: 200px; }
-    .msg { margin: 6px 0; }
-    .me { color: var(--accent2); }
-    .bot { color: var(--text); }
-
-    .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
-    textarea { width: 100%; height: 90px; background: var(--muted); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px; resize: vertical; }
-
-    .steer { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; }
-    .steer input[type="text"] { width: 100%; background: var(--muted); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
-    label { color: var(--subtext); font-size: 14px; }
-    
-    .steering-pairs { display: grid; gap: 8px; }
-    .steering-pairs textarea { 
-      width: 100%; 
-      background: var(--muted); 
-      color: var(--text); 
-      border: 1px solid var(--border); 
-      border-radius: 8px; 
-      padding: 8px; 
-      resize: vertical; 
-      font-family: monospace;
-      font-size: 13px;
-    }
-    
-    .steering-controls { display: grid; gap: 8px; }
-    .control-group { 
-      display: grid; 
-      grid-template-columns: 1fr auto; 
-      gap: 8px; 
-      align-items: center; 
-    }
-    .control-group input[type="range"] { 
-      width: 100%; 
-      background: var(--muted); 
-      height: 6px; 
-      border-radius: 3px; 
-      outline: none; 
-    }
-    .control-group span { 
-      color: var(--accent); 
-      font-weight: 600; 
-      min-width: 30px; 
-      text-align: right; 
-    }
-    
-    .adapter-select { 
-      background: var(--muted); 
-      border: 1px solid var(--border); 
-      border-radius: 10px; 
-      padding: 10px; 
-      margin-bottom: 8px; 
-      display: grid; 
-      gap: 6px; 
-    }
-    .adapter-select select { 
-      width: 100%; 
-      background: var(--card); 
-      color: var(--text); 
-      border: 1px solid var(--border); 
-      border-radius: 8px; 
-      padding: 8px; 
-    }
-    .adapter-select small { 
-      display: block; 
-      margin-top: 4px; 
-      line-height: 1.3; 
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="panel">
-      <div class="title">Controls</div>
-      <div class="btns">
-        <button id="cleanup" class="primary">Offload Models</button>
-      </div>
-      <div class="adapter-select">
-        <label>Adapter:</label>
-        <select id="adapterSelect">
-          <option value="mistral-7b/mistral-results-7-27-25/lora_adapter">Mistral 7B (7/27/25)</option>
-          <option value="mistral-7b/mistral-results-7-6-25/lora_adapter">Mistral 7B (7/6/25)</option>
-          <option value="gemma-3-27b-it/gemma-3-27b-it_20250903_12225225/lora_adapter">Gemma 3 27B IT (9/3/25)</option>
-        </select>
-      </div>
-      <div id="status" class="status">Model: stopped</div>
-      <div class="steer">
-        <label><input type="checkbox" id="steerEnabled" /> Enable steering</label>
-        
-        <div class="steering-pairs">
-          <label>Contrast pairs (one per line, comma-separated)</label>
-          <textarea id="contrastPairs" placeholder="happy, sad&#10;today is a good day, today is a bad day&#10;wholesome, toxic" rows="4"></textarea>
-        </div>
-        
-        <div class="steering-controls">
-          <div class="control-group">
-            <label>Extraction layer (from last)</label>
-            <input id="extractLayer" type="range" min="-10" max="-1" value="-2" />
-            <span id="extractLayerValue">-2</span>
-          </div>
-          <div class="control-group">
-            <label>Application layer (from last)</label>
-            <input id="applyLayer" type="range" min="-10" max="-1" value="-1" />
-            <span id="applyLayerValue">-1</span>
-          </div>
-          <div class="control-group">
-            <label>Alpha strength</label>
-            <input id="alphaStrength" type="range" min="0.1" max="5.0" step="0.1" value="2.0" />
-            <span id="alphaValue">2.0</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel chat">
-      <div>
-        <div class="tabs">
-          <div class="tab active" id="tab-riya">__RIYA__-bot</div>
-          <div class="tab" id="tab-owen">__OWEN__-bot</div>
-        </div>
-      </div>
-
-      <div id="log-riya" class="log"></div>
-      <div id="log-owen" class="log" style="display:none"></div>
-
-      <div>
-        <div class="row">
-          <textarea id="input" placeholder="Type a message..."></textarea>
-          <button id="send" class="primary">Send</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-    <script>
-    let bot = 'riya';
-    const logRiya = document.getElementById('log-riya');
-    const logOwen = document.getElementById('logOwen');
-
-    // Maintain separate message arrays; render only current bot on tab switch
-    const msgs = { riya: [], owen: [] };
-
-    function render() {
-      const target = bot === 'riya' ? logRiya : logOwen;
-      target.innerHTML = '';
-      for (const m of msgs[bot]) {
-        const d = document.createElement('div');
-        d.className = 'msg ' + m.role;
-        d.textContent = m.name + ': ' + m.text;
-        target.appendChild(d);
-      }
-      target.scrollTop = target.scrollHeight;
-    }
-
-    function currentLog() { return bot === 'riya' ? logRiya : logOwen; }
-
-    function add(role, text) {
-      const name = role === 'me' ? 'You' : (bot === 'riya' ? '__RIYA__' : '__OWEN__');
-      msgs[bot].push({ role, text, name });
-      render();
-    }
-
-    async function call(path, payload) {
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload || {})
-      });
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
-    }
-
-    async function refreshStatus() {
-      const r = await fetch('/health');
-      const j = await r.json();
-      let statusText = 'Model: ' + (j.loaded === 'True' || j.loaded === true ? 'running' : 'stopped');
-      
-      // If we have model info, show it
-      if (j.loaded === 'True' || j.loaded === true) {
-        if (j.model_type) {
-          statusText += ` (${j.model_type})`;
-        }
-        if (j.model_key) {
-          statusText += ` - ${j.model_key}`;
-        }
-      } else {
-        statusText += ' - will auto-load on first chat';
-      }
-      
-      document.getElementById('status').textContent = statusText;
-    }
-
-    // Set up event handlers when DOM is ready
-    document.addEventListener('DOMContentLoaded', function() {
-      // Cleanup button
-      document.getElementById('cleanup').onclick = async () => {
-        document.getElementById('status').textContent = 'Cleaning up...';
-        try {
-          await call('/cleanup', {});
-          document.getElementById('status').textContent = 'Model: stopped (cleaned up)';
-        } catch (e) { 
-          alert('Cleanup failed: ' + e.message); 
-          refreshStatus();
-        }
-      };
-
-      // Initialize the app
-      refreshStatus();
-    });
-
-    // Tab switching
-    document.getElementById('tab-riya').onclick = () => {
-      bot = 'riya';
-      document.getElementById('tab-riya').classList.add('active');
-      document.getElementById('tab-owen').classList.remove('active');
-      logRiya.style.display = '';
-      logOwen.style.display = 'none';
-      document.getElementById('input').value = '';
-      render();
-    };
-    
-    document.getElementById('tab-owen').onclick = () => {
-      bot = 'owen';
-      document.getElementById('tab-owen').classList.add('active');
-      document.getElementById('tab-riya').classList.remove('active');
-      logOwen.style.display = '';
-      logRiya.style.display = 'none';
-      document.getElementById('input').value = '';
-      render();
-    };
-
-    async function send() {
-      const t = document.getElementById('input');
-      const text = t.value.trim(); if (!text) return;
-      add('me', text); t.value = '';
-      
-      const steerEnabled = document.getElementById('steerEnabled').checked;
-      const selectedAdapter = document.getElementById('adapterSelect').value;
-      
-      // Parse contrast pairs from textarea
-      const contrastPairsText = document.getElementById('contrastPairs').value.trim();
-      const steeringPairs = [];
-      
-      if (contrastPairsText) {
-        const lines = contrastPairsText.split('\n');
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine) {
-            const parts = trimmedLine.split(',').map(part => part.trim());
-            if (parts.length === 2 && parts[0] && parts[1]) {
-              steeringPairs.push({ positive: parts[0], negative: parts[1] });
-            }
-          }
-        }
-      }
-      
-      // Collect steering controls
-      const extractLayer = parseInt(document.getElementById('extractLayer').value);
-      const applyLayer = parseInt(document.getElementById('applyLayer').value);
-      const alphaStrength = parseFloat(document.getElementById('alphaStrength').value);
-      
-      try {
-        const r = await call('/chat', {
-          bot,
-          message: text,
-          adapter: selectedAdapter,  // Always send the selected adapter
-          steering: { 
-            enabled: steerEnabled, 
-            pairs: steeringPairs,
-            extract_layer: extractLayer,
-            apply_layer: applyLayer,
-            alpha: alphaStrength
-          },
-          max_new_tokens: __MAX_NEW__
-        });
-        msgs[bot].push({ role: 'bot', text: r.response, name: (bot === 'riya' ? '__RIYA__' : '__OWEN__') });
-        render();
-      } catch (e) {
-        msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? '__RIYA__' : '__OWEN__') });
-        render();
-      }
-    }
-    
-    // Send button and input handling
-    document.getElementById('send').onclick = send;
-    document.getElementById('input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-    });
-    
-    // Handle range slider updates
-    document.getElementById('extractLayer').addEventListener('input', function(e) {
-      document.getElementById('extractLayerValue').textContent = e.target.value;
-    });
-    document.getElementById('applyLayer').addEventListener('input', function(e) {
-      document.getElementById('applyLayerValue').textContent = e.target.value;
-    });
-    document.getElementById('alphaStrength').addEventListener('input', function(e) {
-      document.getElementById('alphaValue').textContent = e.target.value;
-    });
-    
-  </script>
-</body>
-</html>
-"""
+    """Redirect to the Vercel frontend"""
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Conversation App</title>
+        <meta http-equiv="refresh" content="0; url=https://conversation-continuation.vercel.app">
+    </head>
+    <body>
+        <p>Redirecting to <a href="https://conversation-continuation.vercel.app">Vercel Frontend</a>...</p>
+    </body>
+    </html>
+    """)
 
 if __name__ == "__main__":
     print("🚀 Starting Conversation App...")

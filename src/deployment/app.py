@@ -324,14 +324,30 @@ class ModelManager:
         
         # Warm up the model to load checkpoint shards and avoid slow first inference
         print("🔥 Warming up model to preload checkpoint shards...")
+        warmup_success = False
         try:
             with torch.no_grad():
-                # Create a dummy input to trigger checkpoint loading
-                dummy_input = torch.randint(0, len(self.tokenizer), (1, 10)).to(self.model.device)
+                # Create a dummy input and ensure it's on the same device as the model
+                # For multi-GPU models, we need to be more careful about device placement
+                if hasattr(self.model, 'device'):
+                    device = self.model.device
+                else:
+                    # Get device from the first parameter
+                    device = next(self.model.parameters()).device
+                
+                print(f"🔧 Warming up on device: {device}")
+                dummy_input = torch.randint(0, len(self.tokenizer), (1, 10), device=device)
                 _ = self.model(dummy_input)
-            print("✅ Model warmed up successfully - checkpoint shards loaded")
+                warmup_success = True
+                print("✅ Model warmed up successfully - checkpoint shards loaded")
         except Exception as e:
             print(f"⚠️  Model warmup failed: {e}")
+            print("⚠️  This is non-critical - model will still work but first inference may be slow")
+        
+        if warmup_success:
+            print("🚀 Model fully loaded and warmed up - ready for fast inference!")
+        else:
+            print("⚠️  Model loaded but warmup failed - first inference may be slow")
         
         self.loaded = True
         return {

@@ -412,7 +412,7 @@ class ModelManager:
         
         # Initialize chat log file when model starts
         if chat_log_file is None:
-            log_dir = PROJECT_ROOT / "convos" / "chat_logs"
+            log_dir = PROJECT_ROOT / "convos" / "public_logs"
             log_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             log_filename = log_dir / f"chat_session_{timestamp}.log"
@@ -436,18 +436,6 @@ class ModelManager:
     def stop(self) -> Dict[str, str]:
         global chat_log_file
         
-        out_dir = PROJECT_ROOT / "convos" / "public"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        for name, sess in sessions.items():
-            if sess.transcript:
-                fname = out_dir / f"{timestamp}_{name}.txt"
-                with open(fname, "w", encoding="utf-8") as f:
-                    f.write(
-                        f"Session: {name}\nTime: {timestamp}\nBase: {self.base_model_id}\nAdapter: {self.adapter_path}\n\n"
-                    )
-                    for m in sess.transcript:
-                        f.write(f"{m['role']}: {m['content']}\n")
         for s in sessions.values():
             s.transcript.clear()
 

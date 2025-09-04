@@ -282,14 +282,22 @@ class ModelManager:
         return "mistral-7b"  # Default fallback
 
     def start(self, adapter_path: Optional[str] = None) -> Dict[str, str]:
-        if self.loaded:
-            return {"status": "already_running"}
-        
+        # If adapter path is provided and different from current, or no model is loaded
         if adapter_path:
-            # Construct full path from relative path in models directory
-            self.adapter_path = PROJECT_ROOT / "models" / adapter_path
+            new_adapter_path = PROJECT_ROOT / "models" / adapter_path
+            if self.loaded and str(self.adapter_path) == str(new_adapter_path):
+                return {"status": "already_running"}
+            
+            # If switching adapters, stop the current model first
+            if self.loaded:
+                print(f"🔄 Switching from {self.adapter_path} to {new_adapter_path}")
+                self.stop()
+            
+            self.adapter_path = new_adapter_path
             print(f"Using specified adapter: {self.adapter_path}")
         else:
+            if self.loaded:
+                return {"status": "already_running"}
             self.adapter_path = self.find_default_adapter()
             print(f"Using auto-detected adapter: {self.adapter_path}")
         
@@ -309,6 +317,8 @@ class ModelManager:
         self.tokenizer = AutoTokenizer.from_pretrained(str(self.adapter_path))
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        # Keep device_map="auto" for efficient multi-GPU distribution
+        print(f"🔧 Loading base model with device_map: {DEVICE_MAP}")
         base = AutoModelForCausalLM.from_pretrained(
             self.base_model_id,
             device_map=DEVICE_MAP,
@@ -319,7 +329,26 @@ class ModelManager:
         if base.get_input_embeddings().num_embeddings != len(self.tokenizer):
             base.resize_token_embeddings(len(self.tokenizer), mean_resizing=False)
 
-        self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
+        print(f"🔧 Loading LoRA adapter...")
+        # Load LoRA adapter with the same device mapping as the base model
+        self.model = PeftModel.from_pretrained(
+            base, 
+            str(self.adapter_path),
+            device_map=DEVICE_MAP  # Use same device mapping strategy
+        )
+        
+        # For multi-GPU models, we need to be careful about device placement
+        # The model should already be properly distributed, so we don't force it to one device
+        print(f"🔧 Model distributed across devices with device_map: {DEVICE_MAP}")
+        
+        # Log device distribution for debugging
+        if torch.cuda.device_count() > 1:
+            print(f"🔧 Multi-GPU setup detected: {torch.cuda.device_count()} GPUs available")
+            for i in range(torch.cuda.device_count()):
+                gpu_name = torch.cuda.get_device_name(i)
+                gpu_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+                print(f"🔧 GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+        
         self.model.eval()
         
         # Warm up the model to load checkpoint shards and avoid slow first inference
@@ -327,21 +356,23 @@ class ModelManager:
         warmup_success = False
         try:
             with torch.no_grad():
-                # Create a dummy input and ensure it's on the same device as the model
-                # For multi-GPU models, we need to be more careful about device placement
-                if hasattr(self.model, 'device'):
-                    device = self.model.device
-                else:
-                    # Get device from the first parameter
-                    device = next(self.model.parameters()).device
+                # For multi-GPU models, we need to create input on the device where the input layer is
+                # Get the device of the input embeddings layer
+                input_device = self.model.get_input_embeddings().weight.device
+                print(f"🔧 Warming up on input device: {input_device}")
+                print(f"🔧 Creating dummy input with vocab size: {len(self.tokenizer)}")
                 
-                print(f"🔧 Warming up on device: {device}")
-                dummy_input = torch.randint(0, len(self.tokenizer), (1, 10), device=device)
+                # Create dummy input on the input device
+                dummy_input = torch.randint(0, len(self.tokenizer), (1, 10), device=input_device)
+                print(f"🔧 Running dummy inference...")
+                
+                # Run inference to warm up the model
                 _ = self.model(dummy_input)
                 warmup_success = True
                 print("✅ Model warmed up successfully - checkpoint shards loaded")
         except Exception as e:
             print(f"⚠️  Model warmup failed: {e}")
+            print(f"⚠️  Error details: {type(e).__name__}: {str(e)}")
             print("⚠️  This is non-critical - model will still work but first inference may be slow")
         
         if warmup_success:
@@ -418,8 +449,26 @@ def health() -> Dict[str, str]:
 
 @app.post("/start")
 def start(payload: Dict[str, str] = None):
-    """Legacy endpoint - models are now auto-loaded on first chat"""
-    return {"status": "deprecated", "message": "Models are now auto-loaded on first chat"}
+    """Load adapter and warm up model"""
+    print(f"🚀 /start endpoint called with payload: {payload}")
+    
+    if not payload or "adapter_path" not in payload:
+        raise HTTPException(status_code=400, detail="adapter_path is required")
+    
+    adapter_path = payload.get("adapter_path")
+    if not adapter_path:
+        raise HTTPException(status_code=400, detail="adapter_path cannot be empty")
+    
+    print(f"📁 Loading adapter: {adapter_path}")
+    
+    try:
+        # Load the adapter and warm up the model
+        result = model_manager.start(adapter_path)
+        print(f"✅ Adapter loaded successfully: {result}")
+        return result
+    except Exception as e:
+        print(f"❌ Failed to load adapter: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load adapter: {str(e)}")
 
 @app.post("/cleanup")
 def cleanup(origin: str = Depends(verify_origin)):
@@ -439,19 +488,14 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
-    adapter = payload.get("adapter", "")  # Get adapter from payload
     
     if bot not in sessions:
         raise HTTPException(status_code=400, detail="Invalid bot. Use 'riya' or 'owen'.")
     if not message:
         raise HTTPException(status_code=400, detail="Empty message.")
     
-    # Auto-load model if not loaded, or reload if adapter changed
-    if not model_manager.loaded or (adapter and adapter != str(model_manager.adapter_path)):
-        try:
-            model_manager.start(adapter if adapter else None)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+    # Ensure model is loaded
+    model_manager.ensure_loaded()
 
     session = sessions[bot]
 

@@ -474,19 +474,16 @@
             document.getElementById('loadAdapter').textContent = 'Loading...';
 
             try {
-                // First load the adapter
-                await call('/start', { adapter_path: selectedAdapter });
+                // Load the adapter and wait for warmup to complete
+                const result = await call('/start', { adapter_path: selectedAdapter });
 
-                // Update status to show warming up
-                document.getElementById('status').textContent = 'Model: warming up...';
-                document.getElementById('loadAdapter').textContent = 'Warming up...';
-
-                // Wait a bit for the warming up to complete
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                document.getElementById('status').textContent = 'Model: running';
-                document.getElementById('loadAdapter').disabled = true;
-                document.getElementById('loadAdapter').textContent = 'Adapter Loaded';
+                // Check if the model was loaded successfully
+                if (result.status === 'started' || result.status === 'already_running') {
+                    // Refresh status to ensure UI is synchronized
+                    await refreshStatus();
+                } else {
+                    throw new Error('Failed to start model: ' + (result.message || 'Unknown error'));
+                }
             } catch (e) {
                 alert('Failed to load adapter: ' + e.message);
                 document.getElementById('status').textContent = 'Model: failed to load';
@@ -548,7 +545,6 @@
                 const r = await call('/chat', {
                     bot,
                     message: text,
-                    adapter: selectedAdapter,
                     steering: {
                         enabled: steerEnabled,
                         pairs: steeringPairs,
@@ -633,6 +629,9 @@
         // Resize panels on page load and window resize
         window.addEventListener('load', resizePanelsToEqualHeight);
         window.addEventListener('resize', resizePanelsToEqualHeight);
+
+        // Check initial status when page loads (in case user refreshes while model is loaded)
+        window.addEventListener('load', refreshStatus);
 
         // Also resize when the app becomes visible (after login)
         function showApp() {

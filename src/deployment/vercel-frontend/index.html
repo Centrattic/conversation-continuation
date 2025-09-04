@@ -761,11 +761,34 @@
             }
         }
 
+        // Test debug endpoint
+        async function testDebug() {
+            const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/debug';
+            try {
+                const r = await fetch(url);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                const j = await r.json();
+                console.log('Debug response:', j);
+                return j;
+            } catch (e) {
+                console.error('Debug failed:', e);
+                return null;
+            }
+        }
+
         // Check initial status when page loads (in case user refreshes while model is loaded)
         window.addEventListener('load', async () => {
             const isReachable = await testConnectivity();
             if (!isReachable) {
                 console.warn('Server appears to be unreachable');
+            } else {
+                // If server is reachable, test debug endpoint
+                const debugInfo = await testDebug();
+                if (debugInfo) {
+                    console.log('Model manager debug info:', debugInfo);
+                }
             }
             refreshStatus();
         });

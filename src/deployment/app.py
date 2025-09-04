@@ -550,6 +550,30 @@ def ping() -> Dict[str, str]:
     return {"status": "ok", "message": "Server is reachable"}
 
 
+@app.get("/debug")
+def debug() -> Dict[str, str]:
+    """Debug endpoint to check model_manager state"""
+    try:
+        debug_info = {
+            "model_manager_exists": 'model_manager' in globals(),
+            "model_manager_type": str(type(model_manager)) if 'model_manager' in globals() else "N/A"
+        }
+        
+        if 'model_manager' in globals():
+            debug_info.update({
+                "has_loaded_attr": hasattr(model_manager, 'loaded'),
+                "loaded_value": str(getattr(model_manager, 'loaded', 'NO_ATTR')),
+                "has_model_attr": hasattr(model_manager, 'model'),
+                "model_is_none": str(getattr(model_manager, 'model', 'NO_ATTR') is None),
+                "has_tokenizer_attr": hasattr(model_manager, 'tokenizer'),
+                "tokenizer_is_none": str(getattr(model_manager, 'tokenizer', 'NO_ATTR') is None)
+            })
+        
+        return debug_info
+    except Exception as e:
+        return {"error": str(e), "traceback": str(e.__traceback__)}
+
+
 @app.post("/start")
 def start(payload: Dict[str, str] = None):
     """Load adapter and warm up model"""

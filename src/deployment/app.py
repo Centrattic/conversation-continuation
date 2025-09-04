@@ -506,33 +506,47 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> JSONResponse:
-    """Ultra-safe health check that can never fail"""
+def health():
+    """Health check with explicit JSON headers"""
+    from fastapi import Response
+    import json
+    
     try:
         # Start with a basic response that always works
-        response = {"ok": "true", "loaded": "False", "server": "running"}
+        response_data = {"ok": "true", "loaded": "False", "server": "running"}
         
         try:
             if hasattr(model_manager, 'loaded'):
-                response["loaded"] = str(model_manager.loaded)
+                response_data["loaded"] = str(model_manager.loaded)
                 
                 if model_manager.loaded:
                     # Safely add model info
                     if hasattr(model_manager, 'model_type'):
-                        response["model_type"] = str(model_manager.model_type)
+                        response_data["model_type"] = str(model_manager.model_type)
                     if hasattr(model_manager, 'model_key'):
-                        response["model_key"] = str(model_manager.model_key)
+                        response_data["model_key"] = str(model_manager.model_key)
                     if hasattr(model_manager, 'base_model_id'):
-                        response["base_model"] = str(model_manager.base_model_id)
+                        response_data["base_model"] = str(model_manager.base_model_id)
                     if hasattr(model_manager, 'adapter_path') and model_manager.adapter_path:
-                        response["adapter"] = str(model_manager.adapter_path)
+                        response_data["adapter"] = str(model_manager.adapter_path)
         except Exception as model_error:
-            response["model_error"] = str(model_error)
+            response_data["model_error"] = str(model_error)
             
-        return JSONResponse(content=response, media_type="application/json")
+        # Create response with explicit headers
+        response = Response(
+            content=json.dumps(response_data),
+            media_type="application/json",
+            headers={"Content-Type": "application/json"}
+        )
+        return response
     except Exception as e:
         # This should never happen, but just in case
-        return JSONResponse(content={"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}, media_type="application/json")
+        error_response = {"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}
+        return Response(
+            content=json.dumps(error_response),
+            media_type="application/json",
+            headers={"Content-Type": "application/json"}
+        )
 
 
 @app.get("/ping")

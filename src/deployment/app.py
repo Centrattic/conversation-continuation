@@ -337,6 +337,10 @@ class ModelManager:
             device_map=DEVICE_MAP  # Use same device mapping strategy
         )
         
+        # For multi-GPU models, we need to ensure LoRA layers are on the same devices as their base layers
+        print(f"🔧 Ensuring LoRA layers align with base model device placement...")
+        self._align_lora_devices()
+        
         # For multi-GPU models, we need to be careful about device placement
         # The model should already be properly distributed, so we don't force it to one device
         print(f"🔧 Model distributed across devices with device_map: {DEVICE_MAP}")
@@ -416,6 +420,96 @@ class ModelManager:
         gc.collect()
         torch.cuda.empty_cache()
         return {"status": "stopped"}
+
+    def _align_lora_devices(self) -> None:
+        """Ensure LoRA layers are on the same devices as their corresponding base model layers"""
+        print("🔧 Aligning LoRA device placement with base model...")
+        
+        try:
+            # Get the base model to check device placement
+            base_model = self.model.get_base_model()
+            
+            # Track device alignments
+            alignments_made = 0
+            
+            # Iterate through all modules to find LoRA layers and align them
+            for name, module in self.model.named_modules():
+                if hasattr(module, 'lora_A') and hasattr(module, 'lora_B'):
+                    # This is a LoRA layer
+                    if hasattr(module, 'base_layer'):
+                        # Get the device of the base layer
+                        base_device = next(module.base_layer.parameters()).device
+                        
+                        # Check if LoRA layers are on the same device
+                        lora_a_device = next(module.lora_A.parameters()).device
+                        lora_b_device = next(module.lora_B.parameters()).device
+                        
+                        if lora_a_device != base_device or lora_b_device != base_device:
+                            print(f"🔧 Aligning LoRA layer {name} to device {base_device}")
+                            module.lora_A = module.lora_A.to(base_device)
+                            module.lora_B = module.lora_B.to(base_device)
+                            alignments_made += 1
+                        else:
+                            print(f"🔧 LoRA layer {name} already aligned on {base_device}")
+                    else:
+                        # For some LoRA implementations, we might need to check the parent module
+                        parent_device = next(module.parameters()).device
+                        print(f"🔧 LoRA layer {name} on {parent_device}")
+            
+            # Also try to align any remaining LoRA parameters that might be in different locations
+            print("🔧 Checking for additional LoRA parameter alignment...")
+            for name, param in self.model.named_parameters():
+                if 'lora_' in name:
+                    # Find the corresponding base parameter to align with
+                    base_name = name.replace('lora_', '').replace('A.', '').replace('B.', '')
+                    try:
+                        # Try to find a base parameter with similar name
+                        for base_param_name, base_param in self.model.named_parameters():
+                            if base_name in base_param_name and 'lora_' not in base_param_name:
+                                if param.device != base_param.device:
+                                    print(f"🔧 Aligning LoRA parameter {name} to device {base_param.device}")
+                                    param.data = param.data.to(base_param.device)
+                                    alignments_made += 1
+                                break
+                    except Exception:
+                        pass
+            
+            print(f"🔧 Device alignment complete: {alignments_made} LoRA layers aligned")
+            
+            # Log the device distribution for debugging
+            self._log_device_distribution()
+
+        except Exception as e:
+            print(f"⚠️  Warning: Could not fully align LoRA devices: {e}")
+            print("⚠️  This might cause device mismatch errors during inference")
+
+    def _log_device_distribution(self) -> None:
+        """Log the device distribution of model parameters for debugging"""
+        print("🔧 Logging model device distribution...")
+        
+        try:
+            device_counts = {}
+            lora_device_counts = {}
+            
+            for name, param in self.model.named_parameters():
+                device = param.device
+                device_counts[device] = device_counts.get(device, 0) + 1
+                
+                # Track LoRA parameters separately
+                if 'lora_' in name:
+                    lora_device_counts[device] = lora_device_counts.get(device, 0) + 1
+            
+            print(f"🔧 Total parameters by device:")
+            for device, count in sorted(device_counts.items()):
+                print(f"🔧   {device}: {count:,} parameters")
+            
+            if lora_device_counts:
+                print(f"🔧 LoRA parameters by device:")
+                for device, count in sorted(lora_device_counts.items()):
+                    print(f"🔧   {device}: {count:,} LoRA parameters")
+            
+        except Exception as e:
+            print(f"⚠️  Could not log device distribution: {e}")
 
     def ensure_loaded(self) -> None:
         if not self.loaded or not self.model or not self.tokenizer:

@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from dotenv import load_dotenv
+from src.config import bnb_config
 
 load_dotenv()
 
@@ -48,7 +49,7 @@ from src.model_utils import (
 )
 from src.steering.steer_utils import generate_steering_vector
 from src.data_utils import clean_for_sampling
-from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
+from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, bnb_config
 
 
 # Adapter paths will be read from config.js to ensure frontend/backend sync
@@ -341,7 +342,7 @@ class ModelManager:
                 print(f"⚠️  Failed to align processor tokenizer: {e}")
 
         # For large models like Gemma-27B, use quantization and single-GPU
-        quantization_config = True
+        quantization_config = bnb_config
         
         if "27b" in self.base_model_id.lower():
           device_map = "cuda:0"
@@ -377,7 +378,7 @@ class ModelManager:
         # Load LoRA adapter
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
         self.model.eval()
-        # self.model = self.model.to(torch.bfloat16)  # This was causing performance issues!
+        self.model = self.model.to(torch.bfloat16)  # This was causing performance issues!
 
         # Warm up the model to load checkpoint shards and avoid slow first inference
         print("🔥 Warming up model to preload checkpoint shards...")

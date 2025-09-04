@@ -7,15 +7,17 @@ from datetime import datetime
 import io
 import requests
 from PIL import Image
-from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER
+from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER, INSTRUCT_SYSTEM_PROMPT, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
 
-def load_image(img_ref: str): # for vlms
+
+def load_image(img_ref: str):  # for vlms
     """img_ref can be a local path or a URL"""
     if img_ref.startswith("http://") or img_ref.startswith("https://"):
         resp = requests.get(img_ref, timeout=10)
         resp.raise_for_status()
         return Image.open(io.BytesIO(resp.content)).convert("RGB")
     return Image.open(img_ref).convert("RGB")
+
 
 # Model configurations
 def get_model_config(model_key: str) -> Dict:
@@ -171,7 +173,13 @@ def prepare_generation_inputs(
     prompt = prompt.strip()
     try:
         if processor is not None:
-            messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+            messages = [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": prompt
+                }]
+            }]
             proc_out = processor.apply_chat_template(
                 conversation=messages,
                 add_generation_prompt=True,
@@ -218,6 +226,7 @@ def prepare_generation_inputs(
     input_length = input_ids.shape[1]
     return model_inputs, input_length
 
+
 @torch.no_grad()
 def generate(
     model,
@@ -225,10 +234,18 @@ def generate(
     tokenizer,
     max_new_tokens=50,
     processor=None,
+    is_instruct=False,
+    target_speaker=None,
 ):
-    model_inputs, input_length = prepare_generation_inputs(
-        model, tokenizer, prompt, processor=processor
-    )
+    """Generate text, handling both base and instruct models."""
+    if is_instruct and target_speaker:
+        # For instruct models, format the prompt properly
+        prompt = format_instruct_prompt(prompt, target_speaker)
+
+    model_inputs, input_length = prepare_generation_inputs(model,
+                                                           tokenizer,
+                                                           prompt,
+                                                           processor=processor)
     outputs = model.generate(
         **model_inputs,
         max_new_tokens=max_new_tokens,
@@ -244,6 +261,12 @@ def generate(
     out_text = tokenizer.decode(gen_ids, skip_special_tokens=False).strip()
     for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>"):
         out_text = out_text.replace(control_tok, "").strip()
+
+    # For instruct models, force the target speaker token
+    if is_instruct and target_speaker:
+        out_text = force_speaker_token_after_generation(
+            out_text, target_speaker, tokenizer)
+
     return out_text
 
 
@@ -345,7 +368,14 @@ def generate_with_steering(
     steering_vector,
     max_new_tokens=50,
     layer_from_last=-1,
+    is_instruct=False,
+    target_speaker=None,
 ):
+    """Generate text with steering, handling both base and instruct models."""
+    if is_instruct and target_speaker:
+        # For instruct models, format the prompt properly
+        prompt = format_instruct_prompt(prompt, target_speaker)
+
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -387,4 +417,79 @@ def generate_with_steering(
     # remove hook
     h.remove()
     out_text = tokenizer.decode(outputs[0]).replace(prompt, "").strip()
+
+    # For instruct models, force the target speaker token
+    if is_instruct and target_speaker:
+        out_text = force_speaker_token_after_generation(
+            out_text, target_speaker, tokenizer)
+
     return out_text
+
+
+def detect_model_type(model_key: str) -> str:
+    """Detect if a model is instruct or base type."""
+    if model_key in MODEL_CONFIGS:
+        return MODEL_CONFIGS[model_key].get("model_type", "base")
+    return "base"
+
+
+def format_instruct_prompt(conversation_history: str,
+                           next_speaker: str,
+                           system_prompt: str = None) -> str:
+    """Format prompt for instruct models using system prompt and conversation history."""
+    if system_prompt is None:
+        system_prompt = INSTRUCT_SYSTEM_PROMPT.format(
+            FRIEND_SPEAKER_TOK=FRIEND_SPEAKER_TOKEN,
+            RIYA_SPEAKER_TOK=RIYA_SPEAKER_TOKEN)
+
+    # Format the conversation history with proper speaker tokens
+    formatted_history = conversation_history.strip()
+
+    # Create the full prompt
+    full_prompt = f"{system_prompt}\n\n{formatted_history}\n\nWhat does {next_speaker} say next?"
+    return full_prompt
+
+
+def force_speaker_token_after_generation(generated_text: str,
+                                         target_speaker: str,
+                                         tokenizer) -> str:
+    """Force the target speaker token to appear after generation for instruct models."""
+    # Clean up any existing speaker tokens at the end
+    generated_text = generated_text.strip()
+
+    # Remove any trailing speaker tokens
+    for token in [RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN]:
+        if generated_text.endswith(token):
+            generated_text = generated_text[:-len(token)].strip()
+
+    # Add the target speaker token
+    target_token = RIYA_SPEAKER_TOKEN if target_speaker == "Riya" else FRIEND_SPEAKER_TOKEN
+    generated_text = f"{generated_text}\n{target_token}"
+
+    return generated_text
+
+
+def truncate_to_next_speaker(text: str, expected_stop: str,
+                             other_stop: str) -> str:
+    """Cut model output at first sign of the next speaker.
+    Looks for multiple patterns: [Name], [Name], Name:, Name : (case-insensitive), and newlines.
+    """
+    candidates: List[int] = []
+    lowers = text.lower()
+    candidates.append(text.find(expected_stop))
+    candidates.append(text.find(other_stop))
+    for token in [
+            f"{expected_stop.strip('[]')}:",
+            f"{expected_stop.strip('[]')} :",
+            f"{other_stop.strip('[]')}:",
+            f"{other_stop.strip('[]')} :",
+    ]:
+        i = lowers.find(token.lower())
+        candidates.append(i)
+    i_colon = text.find(" : ")
+    candidates.append(i_colon)
+    candidates.append(text.find("\n["))
+    cut = min([i for i in candidates if i is not None and i >= 0], default=-1)
+    if cut >= 0:
+        return text[:cut]
+    return text

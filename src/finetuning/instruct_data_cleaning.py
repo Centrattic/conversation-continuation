@@ -73,29 +73,46 @@ def load_and_prepare_instruct_data(path: str,
             # Create the instruct format
             if ask_generic_next and max_next_messages is not None and max_next_messages > 1:
                 # Look ahead to include additional messages (generic mode collects regardless of speaker)
-                response_messages = [{"speaker": next_speaker_tag, "content": next_speaker_content}]
+                response_messages = [{
+                    "speaker": next_speaker_tag,
+                    "content": next_speaker_content
+                }]
                 k = i + 1
-                while k < len(df) and len(response_messages) < max_next_messages:
+                while k < len(df) and len(
+                        response_messages) < max_next_messages:
                     next_row = df.iloc[k]
-                    speaker_k = f"[{RIYA_NAME}]" if next_row["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+                    speaker_k = f"[{RIYA_NAME}]" if next_row[
+                        "Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
                     response_messages.append({
-                        "speaker": speaker_k,
-                        "content": next_row["Content"].strip()
+                        "speaker":
+                        speaker_k,
+                        "content":
+                        next_row["Content"].strip()
                     })
                     k += 1
                 instruct_example = create_instruct_example_with_multiple_responses(
-                    conversation_history, next_speaker, response_messages, ask_generic_next=True)
+                    conversation_history,
+                    next_speaker,
+                    response_messages,
+                    ask_generic_next=True)
             else:
-                instruct_example = create_instruct_example(conversation_history,
-                                                           next_speaker,
-                                                           next_speaker_content,
-                                                           ask_generic_next=ask_generic_next)
+                instruct_example = create_instruct_example(
+                    conversation_history,
+                    next_speaker,
+                    next_speaker_content,
+                    ask_generic_next=ask_generic_next)
             conversations.append(instruct_example)
 
     # Optional rebalancing of next speaker classes
     if balance_next_speaker and conversations:
-        riya_examples = [ex for ex in conversations if ex["response"].startswith(RIYA_SPEAKER_TOKEN)]
-        owen_examples = [ex for ex in conversations if ex["response"].startswith(FRIEND_SPEAKER_TOKEN)]
+        riya_examples = [
+            ex for ex in conversations
+            if ex["response"].startswith(RIYA_SPEAKER_TOKEN)
+        ]
+        owen_examples = [
+            ex for ex in conversations
+            if ex["response"].startswith(FRIEND_SPEAKER_TOKEN)
+        ]
         if riya_examples and owen_examples:
             target = min(len(riya_examples), len(owen_examples))
             random.shuffle(riya_examples)
@@ -132,7 +149,8 @@ def create_instruct_example(conversation_history: str,
         user_prompt = f"{conversation_history}\n\nHow does the conversation continue?"
     else:
         user_prompt = INSTRUCT_USER_PROMPT_TEMPLATE.format(
-            conversation_history=conversation_history, next_speaker=next_speaker)
+            conversation_history=conversation_history,
+            next_speaker=next_speaker)
 
     # The response should use the proper speaker format: [Owen] {message}
     if next_speaker == RIYA_NAME:
@@ -168,7 +186,8 @@ def create_instruct_example_with_multiple_responses(
         user_prompt = f"{conversation_history}\n\nHow does the conversation continue?"
     else:
         user_prompt = INSTRUCT_USER_PROMPT_TEMPLATE.format(
-            conversation_history=conversation_history, next_speaker=next_speaker)
+            conversation_history=conversation_history,
+            next_speaker=next_speaker)
 
     # Combine all response messages
     if ask_generic_next:
@@ -182,13 +201,11 @@ def create_instruct_example_with_multiple_responses(
     else:
         # Same-speaker continuation
         if next_speaker == RIYA_NAME:
-            combined_response = " ".join([
-                f"{RIYA_SPEAKER_TOKEN} {msg}" for msg in response_messages
-            ])
+            combined_response = " ".join(
+                [f"{RIYA_SPEAKER_TOKEN} {msg}" for msg in response_messages])
         else:
-            combined_response = " ".join([
-                f"{FRIEND_SPEAKER_TOKEN} {msg}" for msg in response_messages
-            ])
+            combined_response = " ".join(
+                [f"{FRIEND_SPEAKER_TOKEN} {msg}" for msg in response_messages])
 
     return {
         "system": system_prompt,
@@ -232,11 +249,12 @@ def load_and_prepare_instruct_data_with_multiple_responses(
     df = df.sort_values(by="Date")
 
     conversations = []
-    
+
     # Convert to list of messages with speaker info for easier processing
     messages = []
     for _, row in df.iterrows():
-        speaker = f"[{RIYA_NAME}]" if row["Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
+        speaker = f"[{RIYA_NAME}]" if row[
+            "Author"] == "rtyagi86" else f"[{FRIEND_NAME}]"
         messages.append({
             "speaker": speaker,
             "content": row["Content"].strip(),
@@ -245,65 +263,69 @@ def load_and_prepare_instruct_data_with_multiple_responses(
 
     for i in tqdm(range(len(messages))):
         current_message = messages[i]
-        
+
         # For each message, randomly choose context lengths
-        available_lengths = list(range(
-            min_context_window,
-            min(max_context_window + 1, len(messages) - i)
-        ))
-        
+        available_lengths = list(
+            range(min_context_window,
+                  min(max_context_window + 1,
+                      len(messages) - i)))
+
         if not available_lengths:
             continue
-            
+
         # Randomly sample context lengths
         context_lengths = random.sample(
-            available_lengths, 
-            min(num_context_samples, len(available_lengths))
-        )
-        
+            available_lengths, min(num_context_samples,
+                                   len(available_lengths)))
+
         for context_length in context_lengths:
             # For each sampled context length, also sample a per-example response length
-            sampled_response_len = random.randint(min_context_window, max_context_window)
+            sampled_response_len = random.randint(min_context_window,
+                                                  max_context_window)
             # Check if we have enough messages ahead to create this context
             if i + context_length >= len(messages):
                 continue
-                
+
             # Create context starting from current message and going forward
             context_messages = messages[i:i + context_length]
             conversation_history = "\n".join([
-                f"{msg['speaker']} {msg['content']}" 
+                f"{msg['speaker']} {msg['content']}"
                 for msg in context_messages
             ])
-            
+
             # Find the next speaker after the context window
             next_message_idx = i + context_length
             if next_message_idx >= len(messages):
                 continue
-                
+
             next_message = messages[next_message_idx]
             next_speaker_tag = next_message["speaker"]
-            
+
             # Determine who the next speaker is
             if next_speaker_tag == f"[{RIYA_NAME}]":
                 next_speaker = RIYA_NAME
             else:
                 next_speaker = FRIEND_NAME
-            
+
             # Look ahead to collect next messages
             if ask_generic_next:
                 # Keep speaker and content for accurate labeling
-                response_messages = [{"speaker": next_message["speaker"], "content": next_message["content"]}]
+                response_messages = [{
+                    "speaker": next_message["speaker"],
+                    "content": next_message["content"]
+                }]
             else:
                 response_messages = [next_message["content"]]
             j = next_message_idx + 1
-            
+
             while j < len(messages):
                 # Check for time gap
                 if j > 0:
-                    gap = (messages[j]["date"] - messages[j-1]["date"]).total_seconds() / 60
+                    gap = (messages[j]["date"] -
+                           messages[j - 1]["date"]).total_seconds() / 60
                     if gap > max_gap_minutes:
                         break
-                
+
                 if ask_generic_next:
                     # Collect regardless of speaker, keep true speaker tag
                     response_messages.append({
@@ -318,19 +340,23 @@ def load_and_prepare_instruct_data_with_multiple_responses(
                         j += 1
                     else:
                         break
-                
+
                 # Determine per-example limit: sampled_response_len takes precedence if provided
                 per_example_limit = sampled_response_len
                 # If a global cap is set, enforce the smaller of the two
                 if max_next_messages is not None:
-                    per_example_limit = min(per_example_limit, max_next_messages)
+                    per_example_limit = min(per_example_limit,
+                                            max_next_messages)
                 if len(response_messages) >= max(1, per_example_limit):
                     break
-            
+
             # Create the instruct example
             instruct_example = create_instruct_example_with_multiple_responses(
-                conversation_history, next_speaker, response_messages, ask_generic_next=ask_generic_next)
-            
+                conversation_history,
+                next_speaker,
+                response_messages,
+                ask_generic_next=ask_generic_next)
+
             # Add metadata
             instruct_example["context_window"] = context_length
             instruct_example["start_message_index"] = i
@@ -338,8 +364,14 @@ def load_and_prepare_instruct_data_with_multiple_responses(
 
     # Optional rebalancing of next speaker classes
     if balance_next_speaker and conversations:
-        riya_examples = [ex for ex in conversations if ex["response"].startswith(RIYA_SPEAKER_TOKEN)]
-        owen_examples = [ex for ex in conversations if ex["response"].startswith(FRIEND_SPEAKER_TOKEN)]
+        riya_examples = [
+            ex for ex in conversations
+            if ex["response"].startswith(RIYA_SPEAKER_TOKEN)
+        ]
+        owen_examples = [
+            ex for ex in conversations
+            if ex["response"].startswith(FRIEND_SPEAKER_TOKEN)
+        ]
         if riya_examples and owen_examples:
             target = min(len(riya_examples), len(owen_examples))
             random.shuffle(riya_examples)
@@ -407,7 +439,9 @@ if __name__ == "__main__":
     save_json(formatted_data, f"{DATA_PATH}/instruct_train.json")
 
     print(f"Created {len(formatted_data)} instruct training examples")
-    print(f"Context windows range: 4-20 messages, sampling {3} lengths per conversation")
+    print(
+        f"Context windows range: 4-20 messages, sampling {3} lengths per conversation"
+    )
 
     # Show context window distribution
     context_counts = {}

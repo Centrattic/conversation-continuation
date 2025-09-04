@@ -10,7 +10,8 @@ from src.config import FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, bnb_config
 from src.model_utils import generate
 
 base_model_name = Path(f"{MODEL_NAME}")
-adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")test_file = "test.json"
+adapter_path = Path(f"./{RESULTS_FOLDER}/lora_adapter")
+test_file = "test.json"
 max_new_tokens = 50
 n_samples = 10  # How many examples to evaluate
 
@@ -18,11 +19,14 @@ tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
 print("Loading models")
-base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="auto", quantization_config=bnb_config)
+base_model = AutoModelForCausalLM.from_pretrained(
+    base_model_name, device_map="auto", quantization_config=bnb_config)
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 lora_model.eval()
 
-test_data = DatasetDict({"test": load_dataset("json", data_files="test.json", split="train")})["test"]
+test_data = DatasetDict(
+    {"test": load_dataset("json", data_files="test.json",
+                          split="train")})["test"]
 
 print(f"\nComparing on {n_samples} samples:\n")
 # eventually save to file

@@ -41,12 +41,15 @@ class SampleGenerationCallback(TrainerCallback):
         """
         prompt = raw_prompt.strip()
         try:
-            has_tags = all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]"))
+            has_tags = all(tag in prompt
+                           for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]"))
             if not has_tags:
                 return prompt
 
-            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
-            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
+            s0 = prompt.find("[SYS]") + len("[SYS]")
+            s1 = prompt.find("[/SYS]")
+            u0 = prompt.find("[USER]") + len("[USER]")
+            u1 = prompt.find("[/USER]")
             system_content = prompt[s0:s1].strip()
             user_content = prompt[u0:u1].strip()
 
@@ -74,7 +77,8 @@ class SampleGenerationCallback(TrainerCallback):
             completion_new = decoded_new
 
             # saving both a new prompt for fun, and a constant prompt to track progress over time
-            prompt_const = self._format_instruct_prompt(self.samples[seed].get("prompt", ""))
+            prompt_const = self._format_instruct_prompt(self.samples[seed].get(
+                "prompt", ""))
             decoded_const = generate(model,
                                      prompt_const,
                                      self.tokenizer,

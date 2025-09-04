@@ -53,8 +53,10 @@ INSTRUCT_USER_PROMPT_TEMPLATE = "{conversation_history}\n\nWhat does {next_speak
 
 MODEL_CONFIGS = {
     "mistral-7b": {
-        "model_name": "mistralai/Mistral-7B-v0.1",
-        "model_type":"base",
+        "model_name":
+        "mistralai/Mistral-7B-v0.1",
+        "model_type":
+        "base",
         "lora_targets": ["q_proj", "v_proj"],
         "lora_targets_with_embeddings":
         ["embed_tokens", "lm_head", "q_proj", "v_proj"],
@@ -66,8 +68,10 @@ MODEL_CONFIGS = {
         ]
     },
     "gemma-3-27b-it": {
-        "model_name":"google/gemma-3-27b-it",
-        "model_type":"instruct",
+        "model_name":
+        "google/gemma-3-27b-it",
+        "model_type":
+        "instruct",
         "lora_targets": ["q_proj", "v_proj"],
         "lora_targets_with_embeddings":
         ["embed_tokens", "lm_head", "q_proj", "v_proj"],

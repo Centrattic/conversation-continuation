@@ -15,18 +15,19 @@ df = pd.read_csv(CSV_PATH)
 char_lengths = df[COLUMN_NAME].astype(str).str.len()
 
 base_model = Path(MODEL_NAME)
-tokenizer  = AutoTokenizer.from_pretrained(base_model) # LORA doesn't modify tokenizer so don't need that
+tokenizer = AutoTokenizer.from_pretrained(
+    base_model)  # LORA doesn't modify tokenizer so don't need that
 tokenizer.pad_token = tokenizer.eos_token  # ensure padding token
 
 # Compute token counts
 token_counts = df[COLUMN_NAME].astype(str).apply(
-    lambda txt: len(tokenizer(txt).input_ids)
-)
+    lambda txt: len(tokenizer(txt).input_ids))
 
 # Plot character len distribution
-plt.figure(figsize=(8,5))
-plt.hist(char_lengths, 
-         bins=range(0, char_lengths.max() + 5, 5),
+plt.figure(figsize=(8, 5))
+plt.hist(char_lengths,
+         bins=range(0,
+                    char_lengths.max() + 5, 5),
          edgecolor='black')
 plt.xlabel("Length (characters)")
 plt.ylabel("Count")
@@ -41,9 +42,10 @@ plt.savefig(char_fname, bbox_inches='tight')
 plt.close()
 
 # Plot token count distribution
-plt.figure(figsize=(8,5))
-plt.hist(token_counts, 
-         bins=range(0, token_counts.max() + 5, 5),
+plt.figure(figsize=(8, 5))
+plt.hist(token_counts,
+         bins=range(0,
+                    token_counts.max() + 5, 5),
          edgecolor='black')
 plt.xlabel("Number of Tokens")
 plt.ylabel("Count")

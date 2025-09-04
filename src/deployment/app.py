@@ -39,18 +39,21 @@ from src.model_utils import (
     generate,
     generate_with_steering,
     generate_with_ppl,
+    detect_model_type,
+    truncate_to_next_speaker,
 )
 from src.steering.steer_utils import generate_steering_vector
 from src.data_utils import clean_for_sampling
+from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
 
 # ---------- Config ----------
 DEFAULT_BASE_MODEL = os.environ.get("BASE_MODEL_ID", "mistralai/Mistral-7B-v0.1")
 # Attempt to locate a LoRA adapter by default
 DEFAULT_ADAPTER_CANDIDATES = [
-    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-27-25" / "lora_train" / "lora_adapter",
-    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_train" / "lora_adapter",
+    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-27-25" / "lora_adapter",
+    PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" / "lora_adapter",
+    PROJECT_ROOT / "models" / "gemma-3-27b-it" / "gemma-3-27b-it_20250903_12225225" / "lora_adapter",
 ]
-
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
 OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
 
@@ -176,21 +179,63 @@ class ModelManager:
         self.tokenizer: Optional[AutoTokenizer] = None
         self.model: Optional[torch.nn.Module] = None
         self.loaded: bool = False
+        self.model_type: str = "base"  # "base" or "instruct"
+        self.model_key: str = "mistral-7b"  # Default model key
 
     def find_default_adapter(self) -> Optional[Path]:
+        # First try the hardcoded candidates
         for cand in DEFAULT_ADAPTER_CANDIDATES:
             if cand.exists():
                 return cand
-        for p in (PROJECT_ROOT / "models").rglob("lora_adapter"):
-            return p
+        
+        # Then search more broadly in the models directory
+        models_dir = PROJECT_ROOT / "models"
+        if models_dir.exists():
+            # Look for any lora_adapter directories
+            for p in models_dir.rglob("lora_adapter"):
+                if p.exists() and p.is_dir():
+                    print(f"Found adapter: {p}")
+                    return p
+        
+        print("No LoRA adapters found in default locations")
         return None
+
+    def detect_model_key_from_adapter(self, adapter_path: Path) -> str:
+        """Detect which model key this adapter belongs to by checking the path."""
+        adapter_str = str(adapter_path)
+        print(f"Detecting model key from adapter path: {adapter_str}")
+        
+        for model_key in MODEL_CONFIGS.keys():
+            if model_key in adapter_str:
+                print(f"Detected model key: {model_key}")
+                return model_key
+        
+        print(f"Could not detect model key, using default: mistral-7b")
+        return "mistral-7b"  # Default fallback
 
     def start(self, adapter_path: Optional[str] = None) -> Dict[str, str]:
         if self.loaded:
             return {"status": "already_running"}
-        self.adapter_path = Path(adapter_path) if adapter_path else self.find_default_adapter()
+        
+        if adapter_path:
+            # Construct full path from relative path in models directory
+            self.adapter_path = PROJECT_ROOT / "models" / adapter_path
+            print(f"Using specified adapter: {self.adapter_path}")
+        else:
+            self.adapter_path = self.find_default_adapter()
+            print(f"Using auto-detected adapter: {self.adapter_path}")
+        
         if not self.adapter_path or not self.adapter_path.exists():
+            print(f"Adapter path not found: {self.adapter_path}")
             raise HTTPException(status_code=400, detail="LoRA adapter not found. Provide a valid adapter path.")
+
+        # Detect model type and key from adapter path
+        self.model_key = self.detect_model_key_from_adapter(self.adapter_path)
+        self.model_type = detect_model_type(self.model_key)
+        
+        # Update base model ID based on detected model key
+        if self.model_key in MODEL_CONFIGS:
+            self.base_model_id = MODEL_CONFIGS[self.model_key]["model_name"]
 
         torch_dtype = DTYPE_MAP.get(DTYPE, torch.bfloat16)
         self.tokenizer = AutoTokenizer.from_pretrained(str(self.adapter_path))
@@ -209,7 +254,13 @@ class ModelManager:
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
         self.model.eval()
         self.loaded = True
-        return {"status": "started", "base": self.base_model_id, "adapter": str(self.adapter_path)}
+        return {
+            "status": "started", 
+            "base": self.base_model_id, 
+            "adapter": str(self.adapter_path),
+            "model_type": self.model_type,
+            "model_key": self.model_key
+        }
 
     def stop(self) -> Dict[str, str]:
         out_dir = PROJECT_ROOT / "convos" / "public"
@@ -259,31 +310,52 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return {"ok": "true", "loaded": str(model_manager.loaded)}
+    response = {"ok": "true", "loaded": str(model_manager.loaded)}
+    if model_manager.loaded:
+        response.update({
+            "model_type": model_manager.model_type,
+            "model_key": model_manager.model_key,
+            "base_model": model_manager.base_model_id,
+            "adapter": str(model_manager.adapter_path) if model_manager.adapter_path else None
+        })
+    return response
 
 @app.post("/start")
 def start(payload: Dict[str, str] = None):
-    adapter = (payload or {}).get("adapter") if payload else None
-    return model_manager.start(adapter)
+    """Legacy endpoint - models are now auto-loaded on first chat"""
+    return {"status": "deprecated", "message": "Models are now auto-loaded on first chat"}
 
-@app.post("/stop")
-def stop():
+@app.post("/cleanup")
+def cleanup():
+    """Clean up model from memory and clear CUDA cache."""
     for s in sessions.values():
         s.history.clear()
         s.turns = 0
     return model_manager.stop()
 
+@app.post("/stop")
+def stop():
+    """Legacy endpoint - redirects to cleanup"""
+    return cleanup()
+
 @app.post("/chat")
 def chat(payload: Dict) -> Dict:
-    model_manager.ensure_loaded()
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
+    adapter = payload.get("adapter", "")  # Get adapter from payload
     
     if bot not in sessions:
         raise HTTPException(status_code=400, detail="Invalid bot. Use 'riya' or 'owen'.")
     if not message:
         raise HTTPException(status_code=400, detail="Empty message.")
+    
+    # Auto-load model if not loaded, or reload if adapter changed
+    if not model_manager.loaded or (adapter and adapter != str(model_manager.adapter_path)):
+        try:
+            model_manager.start(adapter if adapter else None)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
     session = sessions[bot]
 
@@ -309,32 +381,61 @@ def chat(payload: Dict) -> Dict:
     full_prompt = "".join(session.history)
 
     use_steering = bool(steering.get("enabled"))
-    pos = (steering.get("positive") or "").strip()
-    neg_csv = (steering.get("negative_csv") or "").strip()
-    neg_list = [t.strip() for t in neg_csv.split(",") if t.strip()]
+    steering_pairs = steering.get("pairs", [])
+    extract_layer = steering.get("extract_layer", -2)
+    apply_layer = steering.get("apply_layer", -1)
+    alpha_strength = steering.get("alpha", 2.0)
 
     max_new = int(payload.get("max_new_tokens") or MAX_NEW_TOKENS)
 
-    if use_steering and (pos or neg_list):
+    # Use unified generation functions that handle both model types
+    is_instruct = model_manager.model_type == "instruct"
+    target_speaker = assistant_name if is_instruct else None
+    
+    if use_steering and steering_pairs:
         weights = {}
-        if pos:
-            weights[pos] = 1.0
-        for n in neg_list:
-            weights[n] = -1.0
-        steering_vector = generate_steering_vector(model_manager.model, model_manager.tokenizer, weights,
-                                                   pos_alpha=2.0, neg_alpha=2.0, layer_from_last=-2)
-        raw = generate_with_steering(
-            model_manager.model, full_prompt, model_manager.tokenizer,
-            steering_vector, max_new_tokens=max_new, layer_from_last=-1
-        )
+        for pair in steering_pairs:
+            pos = pair.get("positive", "").strip()
+            neg = pair.get("negative", "").strip()
+            if pos and neg:  # Only add non-empty pairs to weights
+                weights[pos] = alpha_strength
+                weights[neg] = -alpha_strength
+        
+        # generate_steering_vector processes all non-empty pairs together to create a comprehensive steering vector
+        # It combines the effects of all contrastive pairs into a single steering vector
+        if weights:  # Only proceed if we have valid pairs
+            steering_vector = generate_steering_vector(model_manager.model, model_manager.tokenizer, weights,
+                                                       pos_alpha=alpha_strength, neg_alpha=alpha_strength, layer_from_last=extract_layer)
+            raw = generate_with_steering(
+                model_manager.model, full_prompt, model_manager.tokenizer,
+                steering_vector, max_new_tokens=max_new, layer_from_last=apply_layer,
+                is_instruct=is_instruct, target_speaker=target_speaker
+            )
+        else:
+            # No valid pairs, fall back to regular generation
+            raw = generate(
+                model_manager.model, full_prompt, model_manager.tokenizer,
+                max_new_tokens=max_new,
+                is_instruct=is_instruct, target_speaker=target_speaker
+            )
     else:
-        raw, _ = generate_with_ppl(
-            model_manager.model, full_prompt, model_manager.tokenizer, max_new_tokens=max_new
+        # No steering enabled, use regular generation
+        raw = generate(
+            model_manager.model, full_prompt, model_manager.tokenizer,
+            max_new_tokens=max_new,
+            is_instruct=is_instruct, target_speaker=target_speaker
         )
 
-    text = truncate_to_next_speaker(raw, expected_stop=expected_stop, other_stop=other_stop)
-    text = text.lstrip(" :")
-    text = clean_for_sampling(text)
+    # Handle text processing based on model type
+    if is_instruct:
+        # For instruct models, the response already includes the speaker token
+        text = raw.strip()
+        text = clean_for_sampling(text)
+    else:
+        # For base models, truncate and clean up
+        text = truncate_to_next_speaker(raw, expected_stop=expected_stop, other_stop=other_stop)
+        text = text.lstrip(" :")
+        text = clean_for_sampling(text)
 
     session.history.append(text)
     session.turns += 1
@@ -394,9 +495,66 @@ _INDEX_HTML_TEMPLATE = """
     .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
     textarea { width: 100%; height: 90px; background: var(--muted); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px; resize: vertical; }
 
-    .steer { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px; margin-bottom: 8px; display: grid; gap: 6px; }
+    .steer { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; }
     .steer input[type="text"] { width: 100%; background: var(--muted); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
     label { color: var(--subtext); font-size: 14px; }
+    
+    .steering-pairs { display: grid; gap: 8px; }
+    .steering-pairs textarea { 
+      width: 100%; 
+      background: var(--muted); 
+      color: var(--text); 
+      border: 1px solid var(--border); 
+      border-radius: 8px; 
+      padding: 8px; 
+      resize: vertical; 
+      font-family: monospace;
+      font-size: 13px;
+    }
+    
+    .steering-controls { display: grid; gap: 8px; }
+    .control-group { 
+      display: grid; 
+      grid-template-columns: 1fr auto; 
+      gap: 8px; 
+      align-items: center; 
+    }
+    .control-group input[type="range"] { 
+      width: 100%; 
+      background: var(--muted); 
+      height: 6px; 
+      border-radius: 3px; 
+      outline: none; 
+    }
+    .control-group span { 
+      color: var(--accent); 
+      font-weight: 600; 
+      min-width: 30px; 
+      text-align: right; 
+    }
+    
+    .adapter-select { 
+      background: var(--muted); 
+      border: 1px solid var(--border); 
+      border-radius: 10px; 
+      padding: 10px; 
+      margin-bottom: 8px; 
+      display: grid; 
+      gap: 6px; 
+    }
+    .adapter-select select { 
+      width: 100%; 
+      background: var(--card); 
+      color: var(--text); 
+      border: 1px solid var(--border); 
+      border-radius: 8px; 
+      padding: 8px; 
+    }
+    .adapter-select small { 
+      display: block; 
+      margin-top: 4px; 
+      line-height: 1.3; 
+    }
   </style>
 </head>
 <body>
@@ -404,16 +562,42 @@ _INDEX_HTML_TEMPLATE = """
     <div class="panel">
       <div class="title">Controls</div>
       <div class="btns">
-        <button id="start" class="primary">Start Server</button>
-        <button id="stop" class="danger">Stop Server</button>
+        <button id="cleanup" class="primary">Offload Models</button>
+      </div>
+      <div class="adapter-select">
+        <label>Adapter:</label>
+        <select id="adapterSelect">
+          <option value="mistral-7b/mistral-results-7-27-25/lora_adapter">Mistral 7B (7/27/25)</option>
+          <option value="mistral-7b/mistral-results-7-6-25/lora_adapter">Mistral 7B (7/6/25)</option>
+          <option value="gemma-3-27b-it/gemma-3-27b-it_20250903_12225225/lora_adapter">Gemma 3 27B IT (9/3/25)</option>
+        </select>
       </div>
       <div id="status" class="status">Model: stopped</div>
       <div class="steer">
         <label><input type="checkbox" id="steerEnabled" /> Enable steering</label>
-        <label>Positive prompt</label>
-        <input id="pos" type="text" placeholder="e.g. wholesome, helpful" />
-        <label>Negative prompts (comma-separated)</label>
-        <input id="neg" type="text" placeholder="e.g. toxic, rude" />
+        
+        <div class="steering-pairs">
+          <label>Contrast pairs (one per line, comma-separated)</label>
+          <textarea id="contrastPairs" placeholder="happy, sad&#10;today is a good day, today is a bad day&#10;wholesome, toxic" rows="4"></textarea>
+        </div>
+        
+        <div class="steering-controls">
+          <div class="control-group">
+            <label>Extraction layer (from last)</label>
+            <input id="extractLayer" type="range" min="-10" max="-1" value="-2" />
+            <span id="extractLayerValue">-2</span>
+          </div>
+          <div class="control-group">
+            <label>Application layer (from last)</label>
+            <input id="applyLayer" type="range" min="-10" max="-1" value="-1" />
+            <span id="applyLayerValue">-1</span>
+          </div>
+          <div class="control-group">
+            <label>Alpha strength</label>
+            <input id="alphaStrength" type="range" min="0.1" max="5.0" step="0.1" value="2.0" />
+            <span id="alphaValue">2.0</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -437,10 +621,10 @@ _INDEX_HTML_TEMPLATE = """
     </div>
   </div>
 
-  <script>
+    <script>
     let bot = 'riya';
     const logRiya = document.getElementById('log-riya');
-    const logOwen = document.getElementById('log-owen');
+    const logOwen = document.getElementById('logOwen');
 
     // Maintain separate message arrays; render only current bot on tab switch
     const msgs = { riya: [], owen: [] };
@@ -478,22 +662,42 @@ _INDEX_HTML_TEMPLATE = """
     async function refreshStatus() {
       const r = await fetch('/health');
       const j = await r.json();
-      document.getElementById('status').textContent = 'Model: ' + (j.loaded === 'True' || j.loaded === true ? 'running' : 'stopped');
+      let statusText = 'Model: ' + (j.loaded === 'True' || j.loaded === true ? 'running' : 'stopped');
+      
+      // If we have model info, show it
+      if (j.loaded === 'True' || j.loaded === true) {
+        if (j.model_type) {
+          statusText += ` (${j.model_type})`;
+        }
+        if (j.model_key) {
+          statusText += ` - ${j.model_key}`;
+        }
+      } else {
+        statusText += ' - will auto-load on first chat';
+      }
+      
+      document.getElementById('status').textContent = statusText;
     }
 
-    document.getElementById('start').onclick = async () => {
-      document.getElementById('status').textContent = 'Starting...';
-      try {
-        await call('/start', {});
-      } catch (e) { alert('Start failed: ' + e.message); }
-      refreshStatus();
-    };
-    document.getElementById('stop').onclick = async () => {
-      document.getElementById('status').textContent = 'Stopping...';
-      try { await call('/stop', {}); } catch (e) {}
-      refreshStatus();
-    };
+    // Set up event handlers when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+      // Cleanup button
+      document.getElementById('cleanup').onclick = async () => {
+        document.getElementById('status').textContent = 'Cleaning up...';
+        try {
+          await call('/cleanup', {});
+          document.getElementById('status').textContent = 'Model: stopped (cleaned up)';
+        } catch (e) { 
+          alert('Cleanup failed: ' + e.message); 
+          refreshStatus();
+        }
+      };
 
+      // Initialize the app
+      refreshStatus();
+    });
+
+    // Tab switching
     document.getElementById('tab-riya').onclick = () => {
       bot = 'riya';
       document.getElementById('tab-riya').classList.add('active');
@@ -503,6 +707,7 @@ _INDEX_HTML_TEMPLATE = """
       document.getElementById('input').value = '';
       render();
     };
+    
     document.getElementById('tab-owen').onclick = () => {
       bot = 'owen';
       document.getElementById('tab-owen').classList.add('active');
@@ -517,14 +722,44 @@ _INDEX_HTML_TEMPLATE = """
       const t = document.getElementById('input');
       const text = t.value.trim(); if (!text) return;
       add('me', text); t.value = '';
+      
       const steerEnabled = document.getElementById('steerEnabled').checked;
-      const pos = document.getElementById('pos').value;
-      const neg = document.getElementById('neg').value;
+      const selectedAdapter = document.getElementById('adapterSelect').value;
+      
+      // Parse contrast pairs from textarea
+      const contrastPairsText = document.getElementById('contrastPairs').value.trim();
+      const steeringPairs = [];
+      
+      if (contrastPairsText) {
+        const lines = contrastPairsText.split('\n');
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine) {
+            const parts = trimmedLine.split(',').map(part => part.trim());
+            if (parts.length === 2 && parts[0] && parts[1]) {
+              steeringPairs.push({ positive: parts[0], negative: parts[1] });
+            }
+          }
+        }
+      }
+      
+      // Collect steering controls
+      const extractLayer = parseInt(document.getElementById('extractLayer').value);
+      const applyLayer = parseInt(document.getElementById('applyLayer').value);
+      const alphaStrength = parseFloat(document.getElementById('alphaStrength').value);
+      
       try {
         const r = await call('/chat', {
           bot,
           message: text,
-          steering: { enabled: steerEnabled, positive: pos, negative_csv: neg },
+          adapter: selectedAdapter,  // Always send the selected adapter
+          steering: { 
+            enabled: steerEnabled, 
+            pairs: steeringPairs,
+            extract_layer: extractLayer,
+            apply_layer: applyLayer,
+            alpha: alphaStrength
+          },
           max_new_tokens: __MAX_NEW__
         });
         msgs[bot].push({ role: 'bot', text: r.response, name: (bot === 'riya' ? '__RIYA__' : '__OWEN__') });
@@ -534,36 +769,30 @@ _INDEX_HTML_TEMPLATE = """
         render();
       }
     }
+    
+    // Send button and input handling
     document.getElementById('send').onclick = send;
     document.getElementById('input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     });
-
-    refreshStatus();
+    
+    // Handle range slider updates
+    document.getElementById('extractLayer').addEventListener('input', function(e) {
+      document.getElementById('extractLayerValue').textContent = e.target.value;
+    });
+    document.getElementById('applyLayer').addEventListener('input', function(e) {
+      document.getElementById('applyLayerValue').textContent = e.target.value;
+    });
+    document.getElementById('alphaStrength').addEventListener('input', function(e) {
+      document.getElementById('alphaValue').textContent = e.target.value;
+    });
+    
   </script>
 </body>
 </html>
 """
 
 if __name__ == "__main__":
-    # Create ngrok tunnel before starting the server
-    async def main():
-        print("🚀 Starting Conversation App with ngrok tunnel...")
-        
-        # Create ngrok tunnel
-        tunnel_url = await create_ngrok_tunnel()
-        
-        if tunnel_url:
-            print(f"✅ Public URL: {tunnel_url}")
-            print("📝 Copy this URL to your Vercel config.js apiBase")
-        else:
-            print("⚠️  Running without ngrok tunnel (local access only)")
-        
-        # Start the FastAPI server
-        print("🌐 Starting FastAPI server on localhost:9100...")
-        config = uvicorn.Config("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)
-        server = uvicorn.Server(config)
-        await server.serve()
-    
-    # Run the async main function
-    asyncio.run(main())
+    print("🚀 Starting Conversation App...")
+    print("🌐 Starting FastAPI server on localhost:9100...")
+    uvicorn.run("src.deployment.app:app", host="0.0.0.0", port=9100, reload=False)

@@ -32,15 +32,12 @@ from tqdm import tqdm
 from src.config import FRIEND_ID, RIYA_ID, RESULTS_FOLDER, MODEL_NAME, DATA_PATH, bnb_config
 from src.activation_tda.tda_utils import SingleLayerActivationCache, make_hash, pad_or_truncate
 
-def extract_final_hidden(
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizerBase,
-    texts: Sequence[str],
-    device: str,
-    max_seq_len: int,
-    layer_from_last: int
-) -> torch.Tensor:
-    
+
+def extract_final_hidden(model: PreTrainedModel,
+                         tokenizer: PreTrainedTokenizerBase,
+                         texts: Sequence[str], device: str, max_seq_len: int,
+                         layer_from_last: int) -> torch.Tensor:
+
     tokenizer.padding_side = "left"
     tokenizer.truncation_side = "left"
 
@@ -57,21 +54,21 @@ def extract_final_hidden(
     final_hidden = out.hidden_states[layer_from_last]  # (B, S, H)
     return final_hidden
 
-def populate_cache_from_csv(
-    csv_path: Path,
-    cache: SingleLayerActivationCache,
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizerBase,
-    device: str,
-    max_seq_len: int,
-    batch_size: int = 128,
-    content_col: str = "Content",
-    author_col: str = "AuthorID",
-    timestamp_col: str = "Date",
-    min_content_chars: int = 1,
-    layer_from_last: int = -1
-):
-    rows_to_add: List[Tuple[str, str, str, str]] = []  # (hash, author, content)
+
+def populate_cache_from_csv(csv_path: Path,
+                            cache: SingleLayerActivationCache,
+                            model: PreTrainedModel,
+                            tokenizer: PreTrainedTokenizerBase,
+                            device: str,
+                            max_seq_len: int,
+                            batch_size: int = 128,
+                            content_col: str = "Content",
+                            author_col: str = "AuthorID",
+                            timestamp_col: str = "Date",
+                            min_content_chars: int = 1,
+                            layer_from_last: int = -1):
+    rows_to_add: List[Tuple[str, str, str,
+                            str]] = []  # (hash, author, content)
     with csv_path.open() as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -81,7 +78,7 @@ def populate_cache_from_csv(
             author = row.get(author_col, "UNKNOWN")
             ts = row.get(timestamp_col, "")
             h = make_hash(ts, content)
-            if cache.has(h): # don't duplicate activations
+            if cache.has(h):  # don't duplicate activations
                 continue
             rows_to_add.append((h, author, ts, content))
 
@@ -89,8 +86,9 @@ def populate_cache_from_csv(
         return 0
 
     # Batch process
-    for i in tqdm(range(0, len(rows_to_add), batch_size), desc="Populate cache"):
-        chunk = rows_to_add[i:i+batch_size]
+    for i in tqdm(range(0, len(rows_to_add), batch_size),
+                  desc="Populate cache"):
+        chunk = rows_to_add[i:i + batch_size]
         hashes = [c[0] for c in chunk]
         authors = [c[1] for c in chunk]
         timestamps = [c[2] for c in chunk]
@@ -110,18 +108,26 @@ tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
 print("Loading models")
-base_model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map="auto",  quantization_config=bnb_config)
+base_model = AutoModelForCausalLM.from_pretrained(
+    base_model_name, device_map="auto", quantization_config=bnb_config)
 lora_model = PeftModel.from_pretrained(base_model, adapter_path)
 
 hidden_size = lora_model.config.hidden_size
-seq_len = 100 # based on data analysis
+seq_len = 100  # based on data analysis
 
 # Note: change prefix if you're changing layer_from_last, could append that to prefix
-cache = SingleLayerActivationCache(hidden_size, max_seq_len=seq_len, prefix="last")
+cache = SingleLayerActivationCache(hidden_size,
+                                   max_seq_len=seq_len,
+                                   prefix="last")
 
 print("Populating cache")
-populate_cache_from_csv(Path(DATA_PATH), cache, lora_model, tokenizer, device="cuda", 
-                        max_seq_len=seq_len, layer_from_last=-1)
+populate_cache_from_csv(Path(DATA_PATH),
+                        cache,
+                        lora_model,
+                        tokenizer,
+                        device="cuda",
+                        max_seq_len=seq_len,
+                        layer_from_last=-1)
 
 # ToDo: make this a little better by breaking up messages longer than like 128 tokens into additional messages
 # by same author/at same time. So that way we can TDA more precisely + significantly faster activation caching.

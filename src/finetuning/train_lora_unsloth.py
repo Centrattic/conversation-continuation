@@ -44,9 +44,10 @@ parser.add_argument('--experiment',
                     default=None,
                     help='Experiment name (defaults to timestamp)')
 
-parser.add_argument('--special-tokens',
-                    action='store_false', # default true without argument, should rename args
-                    help='Load from special token embeddings')
+parser.add_argument(
+    '--special-tokens',
+    action='store_false',  # default true without argument, should rename args
+    help='Load from special token embeddings')
 
 parser.add_argument('--continue-training',
                     action='store_true',
@@ -60,10 +61,13 @@ parser.add_argument('--instruct-format',
                     action='store_false',
                     help='Use instruct format training data')
 
-parser.add_argument('--data-path',
-                    type=str,
-                    default=None,
-                    help='Path to training data (optional, auto-detects based on config, model type)')
+parser.add_argument(
+    '--data-path',
+    type=str,
+    default=None,
+    help=
+    'Path to training data (optional, auto-detects based on config, model type)'
+)
 
 parser.add_argument('--epochs',
                     type=int,
@@ -85,11 +89,12 @@ parser.add_argument('--max-seq-length',
                     default=4096,
                     help='Maximum sequence length')
 
-parser.add_argument('--quantization',
-                    type=str,
-                    choices=['4bit', '8bit'],
-                    default='4bit',
-                    help='Quantization level (4bit, 8bit, or auto based on model)')
+parser.add_argument(
+    '--quantization',
+    type=str,
+    choices=['4bit', '8bit'],
+    default='4bit',
+    help='Quantization level (4bit, 8bit, or auto based on model)')
 
 args = parser.parse_args()
 
@@ -106,7 +111,10 @@ model_name = model_config["model_name"]
 model_type = model_config["model_type"]
 
 # Create experiment folder
-experiment_folder = create_experiment_folder(args.model, experiment_name,)
+experiment_folder = create_experiment_folder(
+    args.model,
+    experiment_name,
+)
 
 # Save experiment configuration
 experiment_config = {
@@ -168,15 +176,17 @@ if model_type == "instruct":
         if isinstance(tmpl, str):
             tokenizer.chat_template = tmpl
         else:
-            print("[info] no string chat_template on tokenizer; falling back to plain text formatting")
+            print(
+                "[info] no string chat_template on tokenizer; falling back to plain text formatting"
+            )
 
 # Add special tokens if requested
 if args.special_tokens:
     special_tokens = get_speaker_tokens()
-    
+
     if IS_GEMMA_3_VLM:
         tokenizer = processor.tokenizer
-    
+
     tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     model.resize_token_embeddings(len(tokenizer))
 
@@ -192,7 +202,7 @@ if args.special_tokens:
             #     special_tokens[0]: ["▁Ria"],
             #     special_tokens[1]: ["▁Owen", "Owen"]  # that is NOT an _ it's the space
             # }
-        else: # mistral, make this neater later
+        else:  # mistral, make this neater later
             mapping = {
                 special_tokens[0]: ["ri", "ya", "_R"],
                 special_tokens[1]: ["▁Owen"]  # that is NOT an _ it's the space
@@ -225,9 +235,10 @@ model = FastLanguageModel.get_peft_model(
     r=12,  # LoRA rank
     target_modules=target_modules,
     lora_alpha=12,
-    lora_dropout=0, # 0.05
-    bias="none", # all
-    use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
+    lora_dropout=0,  # 0.05
+    bias="none",  # all
+    use_gradient_checkpointing=
+    "unsloth",  # True or "unsloth" for very long context
     random_state=3407,
     use_rslora=True,  # We support rank stabilized LoRA
     loftq_config=None,  # And LoftQ
@@ -262,15 +273,18 @@ def formatting(example):
     if IS_GEMMA_3_VLM and (args.instruct_format and model_type == "instruct"):
         # print("IS GEMMA VLM")
         # Extract [SYS] and [USER] exactly like your non-VLM path
-        if all(tag in prompt for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
-            s0 = prompt.find("[SYS]") + len("[SYS]"); s1 = prompt.find("[/SYS]")
-            u0 = prompt.find("[USER]") + len("[USER]"); u1 = prompt.find("[/USER]")
-            system_content  = prompt[s0:s1].strip()
+        if all(tag in prompt
+               for tag in ("[SYS]", "[/SYS]", "[USER]", "[/USER]")):
+            s0 = prompt.find("[SYS]") + len("[SYS]")
+            s1 = prompt.find("[/SYS]")
+            u0 = prompt.find("[USER]") + len("[USER]")
+            u1 = prompt.find("[/USER]")
+            system_content = prompt[s0:s1].strip()
             user_content = prompt[u0:u1].strip()
-    
+
         img_ref = example.get("image", None)
         img = None
-    
+
         if img_ref:
             try:
                 img = load_image(img_ref)
@@ -278,19 +292,58 @@ def formatting(example):
                 print(f"[warn] failed to load image {img_ref}: {e}")
 
             messages = [
-                {"role": "system", "content": [{"type": "text", "text": system_content}]},
-                {"role": "user", "content": [{"type": "text", "text": user_content},
-                                               {"type": "image", "image": img}]},
-                {"role": "assistant", "content": [{"type": "text", "text": response}]},
+                {
+                    "role": "system",
+                    "content": [{
+                        "type": "text",
+                        "text": system_content
+                    }]
+                },
+                {
+                    "role":
+                    "user",
+                    "content": [{
+                        "type": "text",
+                        "text": user_content
+                    }, {
+                        "type": "image",
+                        "image": img
+                    }]
+                },
+                {
+                    "role": "assistant",
+                    "content": [{
+                        "type": "text",
+                        "text": response
+                    }]
+                },
             ]
-        else: 
+        else:
             # print("No images used in training") # we should always get this
             messages = [
-                    {"role": "system", "content": [{"type": "text", "text": system_content}]},
-                    {"role": "user", "content": [{"type": "text", "text": user_content}]},
-                    {"role": "assistant", "content": [{"type": "text", "text": response}]},
-                ]
-    
+                {
+                    "role": "system",
+                    "content": [{
+                        "type": "text",
+                        "text": system_content
+                    }]
+                },
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": user_content
+                    }]
+                },
+                {
+                    "role": "assistant",
+                    "content": [{
+                        "type": "text",
+                        "text": response
+                    }]
+                },
+            ]
+
         kwargs = dict(
             # messages=messages,
             add_generation_prompt=False,
@@ -298,18 +351,18 @@ def formatting(example):
             return_dict=True,
             return_tensors="pt",
         )
-        
-        proc_out = processor.apply_chat_template(conversation=messages, **kwargs)
+
+        proc_out = processor.apply_chat_template(conversation=messages,
+                                                 **kwargs)
 
         return proc_out
-    else: # base / non-instruct
+    else:  # base / non-instruct
         full_text = f"{prompt}\n{response}"
-        return full_text # tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
+        return full_text  # tokenizer(full_text, truncation=True, padding=False, max_length=max_seq_length,)
 
-formatted_dataset = dataset.map(lambda example: {
-                                            "text": formatting(example)
-                                            },
-                                            remove_columns=["prompt", "response"])
+
+formatted_dataset = dataset.map(lambda example: {"text": formatting(example)},
+                                remove_columns=["prompt", "response"])
 
 # Set up training arguments
 training_args = TrainingArguments(
@@ -318,7 +371,7 @@ training_args = TrainingArguments(
     warmup_steps=20,
     num_train_epochs=args.epochs,
     learning_rate=args.learning_rate,
-    fp16=False, # just so slow
+    fp16=False,  # just so slow
     bf16=True,
     logging_steps=1,
     optim="adamw_8bit",
@@ -336,18 +389,19 @@ trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
     train_dataset=formatted_dataset["train"],
-    dataset_text_field="text",  # We're providing pre-tokenized data, other option "text"
+    dataset_text_field=
+    "text",  # We're providing pre-tokenized data, other option "text"
     max_seq_length=max_seq_length,
     dataset_num_proc=2,
     packing=False,  # Can make training 5x faster for short sequences
     args=training_args,
     callbacks=[
-        SampleGenerationCallback(tokenizer,
-                                 log_path=experiment_folder /
-                                 "mid_completions.json",
-                                 test_data_path=Path(data_path),
-                                 every_n_steps=8,
-                                 processor=processor if IS_GEMMA_3_VLM else None),
+        SampleGenerationCallback(
+            tokenizer,
+            log_path=experiment_folder / "mid_completions.json",
+            test_data_path=Path(data_path),
+            every_n_steps=8,
+            processor=processor if IS_GEMMA_3_VLM else None),
         LiveJSONLogger(log_path=experiment_folder / "log.json")
     ],
 )

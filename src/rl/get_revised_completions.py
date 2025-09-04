@@ -22,13 +22,12 @@ from src.model_utils import generate
 from src.rl.rl_utils import load_constitutions, get_speaker_from_prompt, get_revised_completion
 
 
-
 def main(args):
 
     # setup
     constitutions = load_constitutions(Path(args.constitutions_dir))
 
-    api_key = os.getenv("OPENAI_API_KEY") # from env var
+    api_key = os.getenv("OPENAI_API_KEY")  # from env var
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable not set.")
     client = OpenAI(api_key=api_key)
@@ -40,8 +39,7 @@ def main(args):
     base_model_path = Path(MODEL_NAME)
     adapter_path = Path(RESULTS_FOLDER) / "lora_adapter"
     base_model = AutoModelForCausalLM.from_pretrained(
-        base_model_path, device_map="auto", quantization_config=bnb_config
-    )
+        base_model_path, device_map="auto", quantization_config=bnb_config)
     model = PeftModel.from_pretrained(base_model, adapter_path)
     model.eval()
     print("Model loaded.")
@@ -53,7 +51,7 @@ def main(args):
 
     # limit to n_samples if specified
     if args.n_samples > 0:
-        prompts_data = prompts_data[: args.n_samples]
+        prompts_data = prompts_data[:args.n_samples]
 
     # generate and revise data
     print(f"\n Generating and revising {len(prompts_data)} completions")
@@ -70,10 +68,11 @@ def main(args):
 
         # generate base completion from your fine-tuned model
         with torch.no_grad():
-            base_completion = generate(
-                model, prompt_text, tokenizer, max_new_tokens=90
-            )
-        
+            base_completion = generate(model,
+                                       prompt_text,
+                                       tokenizer,
+                                       max_new_tokens=90)
+
         # ToDo: clean the base completion to not have stray tokens, check this at least
 
         # get revised completion from GPT-4o-mini
@@ -99,20 +98,35 @@ def main(args):
         json.dump(sft_dataset, f, indent=2, ensure_ascii=False)
 
     print(f"\n Done! ")
-    print(f"Successfully generated and saved {len(sft_dataset)} revised completions to {output_path}")
+    print(
+        f"Successfully generated and saved {len(sft_dataset)} revised completions to {output_path}"
+    )
+
 
 parser = argparse.ArgumentParser(
-    description="Generate and revise completions for SFT using a constitution and a teacher model."
+    description=
+    "Generate and revise completions for SFT using a constitution and a teacher model."
 )
 
-parser.add_argument("--input_file", type=str, default="test.json", 
+parser.add_argument("--input_file",
+                    type=str,
+                    default="test.json",
                     help="Path to the JSON file containing prompts.")
-parser.add_argument("--output_file", type=str, default="sft_revised_dataset.json",
+parser.add_argument("--output_file",
+                    type=str,
+                    default="sft_revised_dataset.json",
                     help="Path to save the output JSON dataset.")
-parser.add_argument("--constitutions_dir", type=str, default="src/rl/constitutions/",
+parser.add_argument("--constitutions_dir",
+                    type=str,
+                    default="src/rl/constitutions/",
                     help="Directory containing the constitution text files.")
-parser.add_argument("--n_samples", type=int, default=-1, 
-                    help="Number of samples to process for SFT. Set negative value for all samples.")
+parser.add_argument(
+    "--n_samples",
+    type=int,
+    default=-1,
+    help=
+    "Number of samples to process for SFT. Set negative value for all samples."
+)
 
 args = parser.parse_args()
 main(args)

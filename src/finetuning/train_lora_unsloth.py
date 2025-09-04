@@ -17,9 +17,9 @@ import io
 import requests
 
 # Local imports
-from src.model_utils import (get_model_config, get_results_folder,
-                             create_experiment_folder, save_experiment_config,
-                             get_lora_adapter_path, load_image)
+from src.model_utils import (get_model_config,
+                            create_experiment_folder, save_experiment_config,
+                            load_image)
 from src.config import FRIEND_NAME, RIYA_NAME, DATA_PATH, bnb_config
 from src.data_utils import get_speaker_tokens
 from src.finetuning.callbacks import SampleGenerationCallback, LiveJSONLogger
@@ -140,7 +140,7 @@ print(f"Model type: {model_type}")
 
 # Load model and tokenizer with Unsloth
 max_seq_length = args.max_seq_length
-dtype = None  # None for auto detection
+dtype = torch.bfloat16
 
 if args.quantization == "8bit":
     load_in_4bit = False
@@ -406,6 +406,7 @@ trainer = SFTTrainer(
     ],
 )
 
+
 # Handle continuation of training by resuming from latest checkpoint in training_output
 def get_latest_checkpoint_dir(output_dir: Path) -> Path | None:
     """Return the latest checkpoint dir like checkpoint-1234 inside output_dir, or None."""
@@ -424,6 +425,7 @@ def get_latest_checkpoint_dir(output_dir: Path) -> Path | None:
                 pass
     return latest_path
 
+
 latest_ckpt = None
 if args.continue_training:
     ckpt_root = experiment_folder / "training_output"
@@ -432,7 +434,9 @@ if args.continue_training:
         print(f"Continuing training from latest checkpoint: {latest_ckpt}")
         trainer.train(resume_from_checkpoint=str(latest_ckpt))
     else:
-        print("No checkpoints found in training_output; starting new training...")
+        print(
+            "No checkpoints found in training_output; starting new training..."
+        )
         trainer.train()
 else:
     print("Starting new LoRA training...")

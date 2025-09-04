@@ -38,6 +38,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoProcessor
 from peft import PeftModel
 import torch
+from unsloth import FastLanguageModel
 
 from src.model_utils import (
     generate,
@@ -53,37 +54,22 @@ from src.config import MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
 # Adapter paths will be read from config.js to ensure frontend/backend sync
 def get_adapter_candidates_from_config():
     """Read adapter paths from config.js to ensure frontend/backend sync"""
-    config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config_local.js"
-    if not config_path.exists():
-        print("⚠️  config.js not found, using fallback adapter paths")
-        return [
-            PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" /
-            "lora_adapter",
-        ]
+    config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config.js"
 
-    try:
-        with open(config_path, 'r') as f:
-            content = f.read()
+    with open(config_path, 'r') as f:
+        content = f.read()
 
-        # Extract adapter paths from config.js
-        import re
-        adapter_matches = re.findall(r"value:\s*['\"]([^'\"]+)['\"]", content)
+    # Extract adapter paths from config.js
+    import re
+    adapter_matches = re.findall(r"value:\s*['\"]([^'\"]+)['\"]", content)
+    
+    print(f"🔍 DEBUG: Config file content preview: {content[:500]}...")
+    print(f"🔍 DEBUG: Adapter matches found: {adapter_matches}")
 
-        if adapter_matches:
-            return [PROJECT_ROOT / "models" / path for path in adapter_matches]
-        else:
-            print("⚠️  No adapter paths found in config.js, using fallback")
-            return [
-                PROJECT_ROOT / "models" / "mistral-7b" /
-                "mistral-results-7-6-25" / "lora_adapter",
-            ]
-    except Exception as e:
-        print(
-            f"⚠️  Error reading config.js: {e}, using fallback adapter paths")
-        return [
-            PROJECT_ROOT / "models" / "mistral-7b" / "mistral-results-7-6-25" /
-            "lora_adapter",
-        ]
+    if adapter_matches:
+        full_paths = [PROJECT_ROOT / "models" / path for path in adapter_matches]
+        print(f"🔍 DEBUG: Full adapter paths: {[str(p) for p in full_paths]}")
+        return full_paths
 
 
 # Get adapter candidates from config.js
@@ -115,6 +101,9 @@ DTYPE_MAP = {
 
 # Ngrok tunnel - persistent backend tunnel for vercel to connect to
 ngrok_listener = None
+
+# Chat logging
+chat_log_file = None
 
 
 async def create_ngrok_tunnel():
@@ -252,7 +241,6 @@ class ChatSession:
 
 
 class ModelManager:
-
     def __init__(self) -> None:
         self.base_model_id: str = None
         self.adapter_path: Optional[Path] = None
@@ -262,6 +250,8 @@ class ModelManager:
         self.loaded: bool = False
         self.model_type: str = "base"  # "base" or "instruct"
         self.model_key: str = "mistral-7b"  # Default model key
+        self.steering_vector: Optional[torch.Tensor] = None
+        self.steering_enabled: bool = False
 
     def find_default_adapter(self) -> Optional[Path]:
         # Only try the hardcoded candidates
@@ -286,6 +276,8 @@ class ModelManager:
             f"Could not detect model key from adapter path: {adapter_str}")
 
     def start(self, adapter_path: Optional[str] = None) -> Dict[str, str]:
+        global chat_log_file
+        
         # If adapter path is provided and different from current, or no model is loaded
         if adapter_path:
             new_adapter_path = PROJECT_ROOT / "models" / adapter_path
@@ -317,24 +309,36 @@ class ModelManager:
         self.model_key = self.detect_model_key_from_adapter(self.adapter_path)
         self.model_type = detect_model_type(self.model_key)
 
-        # Update base model ID based on detected model key
-        if self.model_key in MODEL_CONFIGS:
-            self.base_model_id = MODEL_CONFIGS[self.model_key]["model_name"]
+        # Load base model ID from checkpoint's adapter config (matches training setup)
+        adapter_config_path = self.adapter_path / "adapter_config.json"
+        if adapter_config_path.exists():
+            with open(adapter_config_path, 'r') as f:
+                adapter_config = json.load(f)
+            self.base_model_id = adapter_config["base_model_name_or_path"]
+            print(f"🔧 Using base model from checkpoint: {self.base_model_id}")
+        else:
+            # Fallback to config if no adapter config found
+            if self.model_key in MODEL_CONFIGS:
+                self.base_model_id = MODEL_CONFIGS[
+                    self.model_key]["model_name"]
+                print(f"🔧 Using base model from config: {self.base_model_id}")
 
         torch_dtype = DTYPE_MAP.get(DTYPE, torch.bfloat16)
         self.tokenizer = AutoTokenizer.from_pretrained(str(self.adapter_path))
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # Try to load processor for instruct models
-        try:
-            self.processor = AutoProcessor.from_pretrained(
-                self.base_model_id,
-                use_fast=True,
-            )
-            print(f"✅ Loaded processor for {self.model_key}")
-        except Exception as e:
-            print(f"⚠️  No processor found for {self.model_key}: {e}")
-            self.processor = None
+        # Load processor from scratch since I didn't save it
+        # so must update its tokenizer to reflect trained tokenizer
+        self.processor = AutoProcessor.from_pretrained(
+            self.base_model_id,
+            use_fast=True,
+        )
+        if self.processor is not None and hasattr(self.processor, 'tokenizer'):
+            try:
+                self.processor.tokenizer = self.tokenizer
+                print("✅ Processor tokenizer aligned with adapter tokenizer")
+            except Exception as e:
+                print(f"⚠️  Failed to align processor tokenizer: {e}")
 
         # For large models like Gemma-27B, use quantization and single-GPU
         if "27b" in self.base_model_id.lower():
@@ -368,14 +372,26 @@ class ModelManager:
             device_map = DEVICE_MAP
 
         print(f"🔧 Loading base model with device_map: {device_map}")
-        base = AutoModelForCausalLM.from_pretrained(
-            self.base_model_id,
-            device_map=device_map,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True,
-            quantization_config=quantization_config,
-        )
+
+        # Use FastLanguageModel for unsloth models to match training setup
+        if "unsloth" in self.base_model_id.lower():
+            print("🔧 Using FastLanguageModel for unsloth model")
+            base, _ = FastLanguageModel.from_pretrained(
+                model_name=self.base_model_id,
+                max_seq_length=4096,
+                dtype=torch.bfloat16,  # Use bfloat16 consistently
+                load_in_4bit=True if quantization_config else False,
+                load_in_8bit=False,
+            )
+        else:
+            base = AutoModelForCausalLM.from_pretrained(
+                self.base_model_id,
+                device_map=device_map,
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+                quantization_config=quantization_config,
+            )
         if base.get_input_embeddings().num_embeddings != len(self.tokenizer):
             base.resize_token_embeddings(len(self.tokenizer),
                                          mean_resizing=False)
@@ -383,22 +399,8 @@ class ModelManager:
         print(f"🔧 Loading LoRA adapter...")
         # Load LoRA adapter
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
-
-        # Log GPU info and memory usage for debugging
-        if torch.cuda.device_count() > 0:
-            gpu_name = torch.cuda.get_device_name(0)
-            gpu_memory = torch.cuda.get_device_properties(
-                0).total_memory / 1024**3
-            print(f"🔧 Using GPU: {gpu_name} ({gpu_memory:.1f} GB)")
-
-            # Log current memory usage
-            allocated = torch.cuda.memory_allocated(0) / 1024**3
-            reserved = torch.cuda.memory_reserved(0) / 1024**3
-            print(
-                f"🔧 GPU memory: {allocated:.1f} GB allocated, {reserved:.1f} GB reserved"
-            )
-
         self.model.eval()
+        self.model = self.model.to(torch.bfloat16)
 
         # Warm up the model to load checkpoint shards and avoid slow first inference
         print("🔥 Warming up model to preload checkpoint shards...")
@@ -422,25 +424,29 @@ class ModelManager:
                 _ = self.model(dummy_input)
                 warmup_success = True
                 print(
-                    "✅ Model warmed up successfully - checkpoint shards loaded"
+                  "Model warmed up successfully - checkpoint shards loaded"
                 )
         except Exception as e:
-            print(f"⚠️  Model warmup failed: {e}")
-            print(f"⚠️  Error details: {type(e).__name__}: {str(e)}")
-            print(
-                "⚠️  This is non-critical - model will still work but first inference may be slow"
-            )
-
-        if warmup_success:
-            print(
-                "🚀 Model fully loaded and warmed up - ready for fast inference!"
-            )
-        else:
-            print(
-                "⚠️  Model loaded but warmup failed - first inference may be slow"
-            )
+            print(f" Model warmup failed: {e}")
+            print(f" Error details: {type(e).__name__}: {str(e)}")
 
         self.loaded = True
+        
+        # Initialize chat log file when model starts
+        if chat_log_file is None:
+            log_dir = PROJECT_ROOT / "convos" / "chat_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_filename = log_dir / f"chat_session_{timestamp}.log"
+            chat_log_file = open(log_filename, 'w', encoding='utf-8')
+            chat_log_file.write(f"Chat session started at {datetime.now().isoformat()}\n")
+            chat_log_file.write(f"Model: {self.base_model_id}\n")
+            chat_log_file.write(f"Adapter: {self.adapter_path}\n")
+            chat_log_file.write(f"Model type: {self.model_type}\n")
+            chat_log_file.write("=" * 80 + "\n\n")
+            chat_log_file.flush()
+            print(f"📝 Chat log started: {log_filename}")
+        
         return {
             "status": "started",
             "base": self.base_model_id,
@@ -450,6 +456,8 @@ class ModelManager:
         }
 
     def stop(self) -> Dict[str, str]:
+        global chat_log_file
+        
         out_dir = PROJECT_ROOT / "convos" / "public"
         out_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -465,6 +473,16 @@ class ModelManager:
         for s in sessions.values():
             s.transcript.clear()
 
+        # Close chat log file when model is stopped
+        if chat_log_file is not None:
+            try:
+                chat_log_file.write(f"\nChat session ended at {datetime.now().isoformat()}\n")
+                chat_log_file.close()
+                print(f"📝 Chat log closed")
+            except Exception as e:
+                print(f"⚠️  Error closing chat log: {e}")
+            chat_log_file = None
+
         if not self.loaded:
             return {"status": "already_stopped"}
         try:
@@ -476,6 +494,8 @@ class ModelManager:
         self.model = None
         self.tokenizer = None
         self.processor = None
+        self.steering_vector = None
+        self.steering_enabled = False
         self.loaded = False
         gc.collect()
         torch.cuda.empty_cache()
@@ -539,6 +559,8 @@ def start(payload: Dict[str, str] = None):
                             detail="adapter_path cannot be empty")
 
     print(f"📁 Loading adapter: {adapter_path}")
+    print(f"🔍 DEBUG: Raw adapter_path received: '{adapter_path}'")
+    print(f"🔍 DEBUG: Type of adapter_path: {type(adapter_path)}")
 
     try:
         # Load the adapter and warm up the model
@@ -566,8 +588,101 @@ def stop():
     return cleanup()
 
 
+@app.post("/clear-history")
+def clear_history(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
+    """Clear chat history for a specific bot."""
+    bot = payload.get("bot")
+    if bot not in sessions:
+        raise HTTPException(status_code=400, detail="Invalid bot. Use 'riya' or 'owen'.")
+    
+    # Clear the session history
+    sessions[bot].history.clear()
+    sessions[bot].turns = 0
+    sessions[bot].transcript.clear()
+    
+    print(f"🧹 Cleared history for {bot} bot")
+    return {"status": "success", "message": f"History cleared for {bot} bot"}
+
+
+@app.post("/generate-steering-vector")
+def generate_steering_vector_endpoint(payload: Dict, origin: str = Depends(verify_origin),) -> Dict:
+    """Generate and store a steering vector based on contrast pairs."""
+    print(f"🎯 /generate-steering-vector endpoint called with payload: {payload}")
+    
+    # Ensure model is loaded
+    model_manager.ensure_loaded()
+    
+    pairs = payload.get("pairs", [])
+    extract_layer = payload.get("extract_layer", -2)
+    alpha = payload.get("alpha", 2.0)
+    
+    if not pairs:
+        raise HTTPException(status_code=400, detail="No contrast pairs provided")
+    
+    # Convert pairs to steer_dict format
+    steer_dict = {}
+    for pair in pairs:
+        positive = pair.get("positive", "").strip()
+        negative = pair.get("negative", "").strip()
+        if positive:
+            steer_dict[positive] = 0.25  # Positive weight
+        if negative:
+            steer_dict[negative] = -0.25  # Negative weight
+    
+    if not steer_dict:
+        raise HTTPException(status_code=400, detail="No valid contrast pairs found")
+    
+    print(f"🎯 Generating steering vector with {len(steer_dict)} prompts")
+    print(f"🎯 Steer dict: {steer_dict}")
+    
+    try:
+        # Detect model type
+        is_instruct = detect_model_type(model_manager.model_key) == "instruct"
+        
+        # Generate steering vector
+        steering_vector = generate_steering_vector(
+            model_manager.model,
+            model_manager.tokenizer,
+            steer_dict,
+            pos_alpha=alpha,
+            neg_alpha=alpha,
+            layer_from_last=extract_layer,
+            processor=model_manager.processor,
+            is_instruct=is_instruct,
+            current_speaker=RIYA_NAME  # Default to Riya for now
+        )
+        
+        # Debug: Check steering vector values
+        vector_magnitude = steering_vector.abs().sum().item()
+        vector_max = steering_vector.abs().max().item()
+        print(f"🔍 Steering vector debug:")
+        print(f"  Shape: {steering_vector.shape}")
+        print(f"  Magnitude: {vector_magnitude:.6f}")
+        print(f"  Max value: {vector_max:.6f}")
+        print(f"  Alpha used: {alpha}")
+        
+        # Store the steering vector in the model manager for later use
+        model_manager.steering_vector = steering_vector
+        model_manager.steering_enabled = True
+        
+        print(f"✅ Steering vector generated successfully")
+        
+        return {
+            "status": "success",
+            "message": "Steering vector generated successfully",
+            "vector_shape": list(steering_vector.shape),
+            "pairs_count": len(steer_dict)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error generating steering vector: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate steering vector: {str(e)}")
+
+
 @app.post("/chat")
 def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
+    global chat_log_file
+    
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
@@ -580,6 +695,42 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
 
     # Ensure model is loaded
     model_manager.ensure_loaded()
+    
+    # Log the user message and steering config if enabled
+    if chat_log_file is not None:
+        try:
+            timestamp = datetime.now().isoformat()
+            user_name = OWEN_NAME if bot == "riya" else RIYA_NAME
+            chat_log_file.write(f"[{timestamp}] {user_name}: {message}\n")
+            
+            # Log steering configuration if enabled
+            use_steering = bool(steering.get("enabled"))
+            if use_steering:
+                steering_pairs = steering.get("pairs", [])
+                extract_layer = steering.get("extract_layer", -2)
+                apply_layer = steering.get("apply_layer", -1)
+                alpha_strength = steering.get("alpha", 2.0)
+                
+                chat_log_file.write(f"[{timestamp}] STEERING CONFIG:\n")
+                chat_log_file.write(f"[{timestamp}]   Enabled: {use_steering}\n")
+                chat_log_file.write(f"[{timestamp}]   Extract Layer: {extract_layer}\n")
+                chat_log_file.write(f"[{timestamp}]   Apply Layer: {apply_layer}\n")
+                chat_log_file.write(f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
+                
+                if steering_pairs:
+                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs:\n")
+                    for i, pair in enumerate(steering_pairs):
+                        pos = pair.get("positive", "").strip()
+                        neg = pair.get("negative", "").strip()
+                        if pos and neg:
+                            chat_log_file.write(f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n")
+                else:
+                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs: None\n")
+                chat_log_file.write(f"[{timestamp}] END STEERING CONFIG\n")
+            
+            chat_log_file.flush()
+        except Exception as e:
+            print(f"⚠️  Error writing to chat log: {e}")
 
     session = sessions[bot]
 
@@ -587,11 +738,21 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     session.transcript.append({"role": speaker_user, "content": message})
 
     # Build clean conversation history without trailing speaker tokens
+    def needs_prefix(msg: str, name_a: str, name_b: str) -> bool:
+        s = msg.lstrip()
+        return not (s.startswith(f"[{name_a}]") or s.startswith(f"[{name_b}]"))
+
     if bot == "riya":
-        prompt_line = f"\n[{OWEN_NAME}]: {message}"
+        if needs_prefix(message, OWEN_NAME, RIYA_NAME):
+            prompt_line = f"\n[{OWEN_NAME}] {message}"
+        else:
+            prompt_line = f"\n{message}"
         assistant_name = RIYA_NAME
     else:
-        prompt_line = f"\n[{RIYA_NAME}]: {message}"
+        if needs_prefix(message, RIYA_NAME, OWEN_NAME):
+            prompt_line = f"\n[{RIYA_NAME}] {message}"
+        else:
+            prompt_line = f"\n{message}"
         assistant_name = OWEN_NAME
 
     if session.turns > 8 and session.history:
@@ -614,63 +775,62 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     is_instruct = model_manager.model_type == "instruct"
     target_speaker = assistant_name  # Always pass target_speaker, let generate methods handle it
 
-    if use_steering and steering_pairs:
-        weights = {}
-        for pair in steering_pairs:
-            pos = pair.get("positive", "").strip()
-            neg = pair.get("negative", "").strip()
-            if pos and neg:  # Only add non-empty pairs to weights
-                weights[pos] = alpha_strength
-                weights[neg] = -alpha_strength
-
-        # generate_steering_vector processes all non-empty pairs together to create a comprehensive steering vector
-        # It combines the effects of all contrastive pairs into a single steering vector
-        if weights:  # Only proceed if we have valid pairs
-            steering_vector = generate_steering_vector(
-                model_manager.model,
-                model_manager.tokenizer,
-                weights,
-                pos_alpha=alpha_strength,
-                neg_alpha=alpha_strength,
-                layer_from_last=extract_layer)
-            raw = generate_with_steering(model_manager.model,
-                                         full_prompt,
-                                         model_manager.tokenizer,
-                                         steering_vector,
-                                         max_new_tokens=max_new,
-                                         layer_from_last=apply_layer,
-                                         is_instruct=is_instruct,
-                                         target_speaker=target_speaker,
-                                         processor=model_manager.processor)
-        else:
-            # No valid pairs, fall back to regular generation
-            raw = generate(model_manager.model,
-                           full_prompt,
-                           model_manager.tokenizer,
-                           max_new_tokens=max_new,
-                           is_instruct=is_instruct,
-                           target_speaker=target_speaker,
-                           processor=model_manager.processor)
+    if use_steering and model_manager.steering_enabled and model_manager.steering_vector is not None:
+        # Use the pre-generated steering vector
+        print(f"🎯 Using stored steering vector for generation")
+        raw = generate_with_steering(model_manager.model,
+                                     full_prompt,
+                                     model_manager.tokenizer,
+                                     model_manager.steering_vector,
+                                     max_new_tokens=max_new,
+                                     layer_from_last=apply_layer,
+                                     is_instruct=is_instruct,
+                                     target_speaker=target_speaker,
+                                     deployment=True,
+                                     processor=model_manager.processor)
     else:
-        # No steering enabled, use regular generation
+        # No steering enabled or no steering vector available, use regular generation
+        if use_steering and not model_manager.steering_enabled:
+            print("⚠️  Steering enabled but no steering vector available. Please generate one first.")
         raw = generate(model_manager.model,
                        full_prompt,
                        model_manager.tokenizer,
                        max_new_tokens=max_new,
                        is_instruct=is_instruct,
                        target_speaker=target_speaker,
+                       deployment=True,
                        processor=model_manager.processor)
 
-    # Text processing is now handled by model_utils.py process_generation_output
-    # Just clean the final output
-    text = raw.strip()
-    text = clean_for_sampling(text)
+    # Handle the list of messages returned by generate
+    messages = raw if isinstance(raw, list) else [raw]
 
-    session.history.append(text)
-    session.turns += 1
-    session.transcript.append({"role": assistant_name, "content": text})
+    # Process each message
+    all_responses = []
+    for message in messages:
+        text = message.strip()
+        text = clean_for_sampling(text)
 
-    return {"response": text}
+        # Add to history with speaker token
+        session.history.append(f"\n[{assistant_name}] {text}")
+        session.turns += 1
+        session.transcript.append({"role": assistant_name, "content": text})
+
+        # Log the bot response
+        if chat_log_file is not None:
+            try:
+                timestamp = datetime.now().isoformat()
+                chat_log_file.write(f"[{timestamp}] {assistant_name}: {text}\n")
+                chat_log_file.flush()
+            except Exception as e:
+                print(f"⚠️  Error writing bot response to chat log: {e}")
+
+        # Format each message with speaker name on new line
+        formatted_message = f"{assistant_name}: {text}"
+        all_responses.append(formatted_message)
+
+    # Return all responses with each on a new line
+    response_text = "\n".join(all_responses)
+    return {"response": response_text}
 
 
 @app.get("/")
@@ -696,8 +856,8 @@ def index() -> FileResponse:
 
 @app.get("/config.js")
 def get_config() -> FileResponse:
-    """Serve the local config file"""
-    config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config_local.js"
+    """Serve the config file"""
+    config_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "config.js"
     return FileResponse(str(config_path))
 
 

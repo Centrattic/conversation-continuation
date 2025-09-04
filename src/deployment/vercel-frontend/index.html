@@ -45,6 +45,38 @@
             padding: 16px;
         }
 
+        .panel.controls {
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        /* Custom scrollbar for dark theme */
+        .panel.controls::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .panel.controls::-webkit-scrollbar-track {
+            background: var(--muted);
+            border-radius: 4px;
+        }
+
+        .panel.controls::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+            transition: background 0.2s ease;
+        }
+
+        .panel.controls::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* Firefox scrollbar */
+        .panel.controls {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) var(--muted);
+        }
+
         .title {
             font-weight: 700;
             font-size: 18px;
@@ -58,17 +90,17 @@
             border-radius: 10px;
             padding: 10px 12px;
             cursor: pointer;
-            font-weight: 600;
+            font-weight: normal;
         }
 
         button.primary {
-            background: linear-gradient(135deg, var(--accent), #5243ff);
-            border: none;
+            background: var(--accent);
+            border: 1px solid var(--accent);
         }
 
         button.danger {
-            background: linear-gradient(135deg, var(--danger), #ff2750);
-            border: none;
+            background: var(--danger);
+            border: 1px solid var(--danger);
         }
 
         button:disabled {
@@ -288,7 +320,7 @@
     </div>
 
     <div id="app" class="wrap" style="display:none">
-        <div class="panel">
+        <div class="panel controls">
             <div class="title">Controls</div>
             <div class="btns">
                 <button id="loadAdapter" class="primary">Load Adapter</button>
@@ -298,11 +330,17 @@
             <div class="adapter-select">
                 <label>Adapter:</label>
                 <select id="adapterSelect">
-                    <!-- Options will be populated from config.js -->
                 </select>
             </div>
             <div class="steer">
                 <label><input type="checkbox" id="steerEnabled" /> Enable steering</label>
+
+                <div id="steeringVectorSection" style="display: none;">
+                    <button id="generateSteeringVector" class="primary" style="margin: 8px 0;">Generate steering
+                        vector</button>
+                    <div id="steeringVectorStatus" style="font-size: 12px; color: var(--subtext); margin-top: 4px;">
+                    </div>
+                </div>
 
                 <div class="steering-pairs">
                     <label>Contrast pairs (one per line, comma-separated)</label>
@@ -325,7 +363,7 @@
                     </div>
                     <div class="control-group">
                         <label>Alpha strength</label>
-                        <input id="alphaStrength" type="range" min="-5.0" max="5.0" step="0.1" value="2.0" />
+                        <input id="alphaStrength" type="range" min="-2.0" max="2.0" step="0.1" value="2.0" />
                         <span id="alphaValue">2.0</span>
                     </div>
                 </div>
@@ -384,8 +422,25 @@
             for (const m of msgs[bot]) {
                 const d = document.createElement('div');
                 d.className = 'msg ' + m.role;
-                d.textContent = m.name + ': ' + m.text;
-                target.appendChild(d);
+
+                // Separate divs for multi msg responses
+                const lines = m.text.split('\n');
+                lines.forEach((line, index) => {
+                    if (line.trim()) { // Only create div for non-empty lines
+                        const lineDiv = document.createElement('div');
+                        lineDiv.className = 'msg ' + m.role;
+
+                        const speakerPrefix = m.name + ': ';
+                        if (line.startsWith(speakerPrefix)) {
+                            lineDiv.textContent = line;
+                        } else if (index === 0) {
+                            lineDiv.textContent = speakerPrefix + line;
+                        } else {
+                            lineDiv.textContent = line;
+                        }
+                        target.appendChild(lineDiv);
+                    }
+                });
             }
             target.scrollTop = target.scrollHeight;
         }
@@ -402,13 +457,6 @@
             document.getElementById('app').style.display = 'none';
             document.getElementById('gate').style.display = '';
             document.getElementById('err').textContent = msg || '';
-        }
-
-        function showApp() {
-            document.getElementById('gate').style.display = 'none';
-            document.getElementById('app').style.display = '';
-            // Resize panels after they become visible
-            setTimeout(resizePanelsToEqualWidth, 100);
         }
 
         async function call(path, payload) {
@@ -568,6 +616,75 @@
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
         });
 
+        // Handle steering checkbox
+        document.getElementById('steerEnabled').addEventListener('change', function (e) {
+            const steeringVectorSection = document.getElementById('steeringVectorSection');
+            if (e.target.checked) {
+                steeringVectorSection.style.display = 'block';
+            } else {
+                steeringVectorSection.style.display = 'none';
+            }
+        });
+
+        // Handle generate steering vector button
+        document.getElementById('generateSteeringVector').addEventListener('click', async function () {
+            const button = this;
+            const status = document.getElementById('steeringVectorStatus');
+            const contrastPairsText = document.getElementById('contrastPairs').value.trim();
+
+            if (!contrastPairsText) {
+                status.textContent = 'Please enter contrast pairs first';
+                status.style.color = 'var(--danger)';
+                return;
+            }
+
+            // Parse contrast pairs
+            const steeringPairs = [];
+            const lines = contrastPairsText.split('\n');
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine) {
+                    const parts = trimmedLine.split(',').map(part => part.trim());
+                    if (parts.length === 2 && parts[0] && parts[1]) {
+                        steeringPairs.push({ positive: parts[0], negative: parts[1] });
+                    }
+                }
+            }
+
+            if (steeringPairs.length === 0) {
+                status.textContent = 'Please enter valid contrast pairs (positive, negative)';
+                status.style.color = 'var(--danger)';
+                return;
+            }
+
+            // Get steering parameters
+            const extractLayer = parseInt(document.getElementById('extractLayer').value);
+            const alphaStrength = parseFloat(document.getElementById('alphaStrength').value);
+
+            button.disabled = true;
+            button.textContent = 'Generating...';
+            status.textContent = 'Generating steering vector...';
+            status.style.color = 'var(--subtext)';
+
+            try {
+                const response = await call('/generate-steering-vector', {
+                    pairs: steeringPairs,
+                    extract_layer: extractLayer,
+                    alpha: alphaStrength
+                });
+
+                status.textContent = 'Steering vector generated successfully!';
+                status.style.color = 'var(--ok)';
+                button.textContent = 'Regenerate steering vector';
+            } catch (error) {
+                status.textContent = 'Error: ' + error.message;
+                status.style.color = 'var(--danger)';
+                button.textContent = 'Generate steering vector';
+            } finally {
+                button.disabled = false;
+            }
+        });
+
         // Handle range slider updates
         document.getElementById('extractLayer').addEventListener('input', function (e) {
             document.getElementById('extractLayerValue').textContent = e.target.value;
@@ -580,10 +697,20 @@
         });
 
         // Clear chat functionality
-        document.getElementById('clearChat').onclick = () => {
+        document.getElementById('clearChat').onclick = async () => {
             if (confirm(`Clear ${bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')}-bot chat?`)) {
-                msgs[bot] = [];
-                render();
+                try {
+                    // Clear frontend messages
+                    msgs[bot] = [];
+                    render();
+
+                    // Clear backend history
+                    await call('/clear-history', { bot: bot });
+                    console.log(`✅ Cleared history for ${bot} bot`);
+                } catch (error) {
+                    console.error('Error clearing history:', error);
+                    // Still clear frontend even if backend fails
+                }
             }
         };
 
@@ -611,35 +738,6 @@
             }
         });
 
-        // Dynamic resizing function to make both panels equal height by adjusting width
-        function resizePanelsToEqualHeight() {
-            const wrap = document.querySelector('.wrap');
-            const controlPanel = document.querySelector('.panel:first-child');
-            const chatPanel = document.querySelector('.panel.chat');
-
-            if (!controlPanel || !chatPanel) return;
-
-            // Get the natural heights of both panels
-            const controlHeight = controlPanel.scrollHeight;
-            const chatHeight = chatPanel.scrollHeight;
-
-            // Calculate the height difference
-            const heightDiff = Math.abs(controlHeight - chatHeight);
-
-            if (heightDiff > 50) { // Only adjust if there's a significant difference
-                // If control panel is shorter, make it wider to match chat height
-                if (controlHeight < chatHeight) {
-                    const newControlWidth = 280 + heightDiff * 0.5; // Adjust width based on height difference
-                    wrap.style.gridTemplateColumns = `${newControlWidth}px 1fr`;
-                    console.log(`Adjusted control panel width to ${newControlWidth}px for equal heights`);
-                }
-            }
-        }
-
-        // Resize panels on page load and window resize
-        window.addEventListener('load', resizePanelsToEqualHeight);
-        window.addEventListener('resize', resizePanelsToEqualHeight);
-
         // Check initial status when page loads (in case user refreshes while model is loaded)
         window.addEventListener('load', refreshStatus);
 
@@ -647,8 +745,6 @@
         function showApp() {
             document.getElementById('gate').style.display = 'none';
             document.getElementById('app').style.display = '';
-            // Resize panels after they become visible
-            setTimeout(resizePanelsToEqualHeight, 100);
         }
 
         // Auto-skip authentication for local development

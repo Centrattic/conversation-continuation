@@ -471,43 +471,31 @@
         }
 
         async function refreshStatus() {
-            // Try the simple health endpoint first to avoid the HTML response issue
-            const simpleUrl = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/health-simple';
-            const fullUrl = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/health';
+            // Use the /status endpoint instead of /health to avoid the HTML response issue
+            const statusUrl = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/status';
 
             try {
-                // First try the simple health endpoint
-                const r = await fetch(simpleUrl);
-                console.log('Simple health check response status:', r.status, r.statusText);
+                const r = await fetch(statusUrl);
+                console.log('Status check response status:', r.status, r.statusText);
+                console.log('Status check response headers:', Object.fromEntries(r.headers.entries()));
 
                 if (!r.ok) {
-                    throw new Error(`Simple health check failed: HTTP ${r.status}: ${r.statusText}`);
+                    // Try to get the response text to see what we're actually getting
+                    const responseText = await r.text();
+                    console.error('Status check failed with response:', responseText);
+                    throw new Error(`HTTP ${r.status}: ${r.statusText} - Response: ${responseText.substring(0, 200)}`);
+                }
+
+                // Check if response is actually JSON
+                const contentType = r.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const responseText = await r.text();
+                    console.error('Status check returned non-JSON response:', responseText.substring(0, 500));
+                    throw new Error(`Expected JSON but got ${contentType || 'unknown content type'}`);
                 }
 
                 const j = await r.json();
-                console.log('Simple health check response:', j);
-
-                // Now try the full health endpoint to get model status
-                try {
-                    const fullR = await fetch(fullUrl);
-                    console.log('Full health check response status:', fullR.status, fullR.statusText);
-
-                    if (fullR.ok) {
-                        const contentType = fullR.headers.get('content-type');
-                        if (contentType && contentType.includes('application/json')) {
-                            const fullJ = await fullR.json();
-                            console.log('Full health check response:', fullJ);
-                            j.loaded = fullJ.loaded; // Use the real loaded status
-                        } else {
-                            console.warn('Full health endpoint returned non-JSON, using simple health status');
-                        }
-                    } else {
-                        console.warn('Full health endpoint failed, using simple health status');
-                    }
-                } catch (fullError) {
-                    console.warn('Full health endpoint error:', fullError.message);
-                    // Continue with simple health status
-                }
+                console.log('Status check response:', j);
 
                 const isLoaded = j.loaded === 'True' || j.loaded === true;
                 document.getElementById('status').textContent = 'Model: ' + (isLoaded ? 'running' : 'stopped');
@@ -522,7 +510,7 @@
                     loadButton.textContent = 'Load Adapter';
                 }
             } catch (e) {
-                console.error('Health check failed:', e);
+                console.error('Status check failed:', e);
                 document.getElementById('status').textContent = 'Model: unreachable (' + e.message + ')';
                 // Reset Load Adapter button on error
                 const loadButton = document.getElementById('loadAdapter');

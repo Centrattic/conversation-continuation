@@ -575,6 +575,37 @@ def health_simple() -> Dict[str, str]:
     return {"ok": "true", "loaded": "False", "message": "Simple health check working"}
 
 
+@app.get("/status")
+def status() -> Dict[str, str]:
+    """Alternative health check endpoint with different name"""
+    try:
+        # Start with a basic response that always works
+        response = {"ok": "true", "loaded": "False", "server": "running"}
+        
+        # Try to safely get model_manager info
+        try:
+            if hasattr(model_manager, 'loaded'):
+                response["loaded"] = str(model_manager.loaded)
+                
+                if model_manager.loaded:
+                    # Safely add model info
+                    if hasattr(model_manager, 'model_type'):
+                        response["model_type"] = str(model_manager.model_type)
+                    if hasattr(model_manager, 'model_key'):
+                        response["model_key"] = str(model_manager.model_key)
+                    if hasattr(model_manager, 'base_model_id'):
+                        response["base_model"] = str(model_manager.base_model_id)
+                    if hasattr(model_manager, 'adapter_path') and model_manager.adapter_path:
+                        response["adapter"] = str(model_manager.adapter_path)
+        except Exception as model_error:
+            response["model_error"] = str(model_error)
+            
+        return response
+    except Exception as e:
+        # This should never happen, but just in case
+        return {"ok": "true", "loaded": "False", "error": "status_check_failed", "message": str(e)}
+
+
 @app.get("/debug")
 def debug() -> Dict[str, str]:
     """Debug endpoint to check model_manager state"""

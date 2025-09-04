@@ -40,6 +40,10 @@ Entropy vs. variance: https://math.stackexchange.com/questions/3458708/what-does
 
 ## Version Notes
 
+- I think I errored with instruct training by not adding the start generation soft token? I think I had to finetune with this as well, oops. Idk though, i'm not completely sure. Well shit this was the issue. I should have used the tokens... Also I need to include examples of like 1-5 input responses because model is OOD in those cases. Oops on the start generationt oken. Will add that in training in the future.
+- no actualy what i did was right because of assistant formatting
+- If making changes: restart server! Then push (server url must be pushed)
+
 ### Version 3: RLAIF time! (7/26/25)
 * So holy super excited!
 * Ok so I'm going to follow this paper (https://arxiv.org/pdf/2212.08073) but I don't necessarily want to do constitutional fine-tuning, this seems maybe bad given I havent even done much fine tuning to get to friend model. For now, I just want to play with getting good RL. I realized I have OpenAI API key I could use for RLAIF stuff!

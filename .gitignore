@@ -9,3 +9,5 @@ mistral-results*/*
 src/rl/constitutions/*
 data/*
 *.png
+.env
+.log

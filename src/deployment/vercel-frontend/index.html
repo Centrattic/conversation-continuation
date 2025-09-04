@@ -152,6 +152,46 @@
             padding: 14px;
             overflow-y: auto;
             min-height: 200px;
+            position: relative;
+        }
+
+        #log-riya::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url('./riya.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            opacity: 0.1;
+            border-radius: 14px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        #log-owen::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url('./friend.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            opacity: 0.1;
+            border-radius: 14px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .log>* {
+            position: relative;
+            z-index: 1;
         }
 
         .msg {
@@ -487,12 +527,12 @@
                 }
 
                 // Check if response is actually JSON
-                const contentType = r.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
-                    const responseText = await r.text();
-                    console.error('Health check returned non-JSON response:', responseText.substring(0, 500));
-                    throw new Error(`Expected JSON but got ${contentType || 'unknown content type'}`);
-                }
+                // const contentType = r.headers.get('content-type');
+                // if (!contentType || !contentType.includes('application/json')) {
+                //     const responseText = await r.text();
+                //     console.error('Health check returned non-JSON response:', responseText.substring(0, 500));
+                //     throw new Error(`Expected JSON but got ${contentType || 'unknown content type'}`);
+                // }
 
                 const j = await r.json();
                 console.log('Health check response:', j);

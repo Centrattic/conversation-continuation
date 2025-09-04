@@ -474,7 +474,12 @@
             const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/health';
             try {
                 const r = await fetch(url);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
                 const j = await r.json();
+                console.log('Health check response:', j);
+
                 const isLoaded = j.loaded === 'True' || j.loaded === true;
                 document.getElementById('status').textContent = 'Model: ' + (isLoaded ? 'running' : 'stopped');
 
@@ -488,7 +493,8 @@
                     loadButton.textContent = 'Load Adapter';
                 }
             } catch (e) {
-                document.getElementById('status').textContent = 'Model: unreachable';
+                console.error('Health check failed:', e);
+                document.getElementById('status').textContent = 'Model: unreachable (' + e.message + ')';
                 // Reset Load Adapter button on error
                 const loadButton = document.getElementById('loadAdapter');
                 loadButton.disabled = false;
@@ -738,8 +744,31 @@
             }
         });
 
+        // Test connectivity with ping endpoint
+        async function testConnectivity() {
+            const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/ping';
+            try {
+                const r = await fetch(url);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                const j = await r.json();
+                console.log('Ping response:', j);
+                return true;
+            } catch (e) {
+                console.error('Ping failed:', e);
+                return false;
+            }
+        }
+
         // Check initial status when page loads (in case user refreshes while model is loaded)
-        window.addEventListener('load', refreshStatus);
+        window.addEventListener('load', async () => {
+            const isReachable = await testConnectivity();
+            if (!isReachable) {
+                console.warn('Server appears to be unreachable');
+            }
+            refreshStatus();
+        });
 
         // Also resize when the app becomes visible (after login)
         function showApp() {

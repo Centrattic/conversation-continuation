@@ -269,7 +269,7 @@ def process_generation_output(
     Always returns a list of messages from the target speaker.
     """
     # Clean up control tokens
-    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>"):
+    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>"):
         generated_text = generated_text.replace(control_tok, "").strip()
 
     # Always cut off at the next speaker token if stop_tokens provided
@@ -283,9 +283,14 @@ def process_generation_output(
     if target_speaker:
         target_speaker_token = (RIYA_SPEAKER_TOKEN if target_speaker
                                 == RIYA_NAME else FRIEND_SPEAKER_TOKEN)
+
+        generated_speaker_text = target_speaker_token + generated_text
+
         messages = [
-            part.strip() for part in generated_text.split(target_speaker_token)
-        ]
+                part.strip() for part in generated_speaker_text.split(target_speaker_token)
+                if part.strip()
+            ]
+
         return messages
 
     return [generated_text.strip()]

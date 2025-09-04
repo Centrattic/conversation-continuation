@@ -529,20 +529,25 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    response = {"ok": "true", "loaded": str(model_manager.loaded)}
-    if model_manager.loaded:
-        response.update({
-            "model_type":
-            model_manager.model_type,
-            "model_key":
-            model_manager.model_key,
-            "base_model":
-            model_manager.base_model_id,
-            "adapter":
-            str(model_manager.adapter_path)
-            if model_manager.adapter_path else None
-        })
-    return response
+    try:
+        response = {"ok": "true", "loaded": str(model_manager.loaded)}
+        if model_manager.loaded:
+            response.update({
+                "model_type": model_manager.model_type,
+                "model_key": model_manager.model_key,
+                "base_model": model_manager.base_model_id,
+                "adapter": str(model_manager.adapter_path) if model_manager.adapter_path else None
+            })
+        return response
+    except Exception as e:
+        # Return a basic health response even if model_manager has issues
+        return {"ok": "true", "loaded": "False", "error": str(e)}
+
+
+@app.get("/ping")
+def ping() -> Dict[str, str]:
+    """Simple connectivity test endpoint"""
+    return {"status": "ok", "message": "Server is reachable"}
 
 
 @app.post("/start")

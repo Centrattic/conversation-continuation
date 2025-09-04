@@ -155,15 +155,15 @@
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 14px;
-            padding: 10px;
-            margin-bottom: 8px;
+            padding: 8px;
+            margin-bottom: 6px;
             display: grid;
-            gap: 6px;
+            gap: 4px;
         }
 
         .steering-pairs {
             display: grid;
-            gap: 8px;
+            gap: 4px;
         }
 
         .steering-pairs textarea {
@@ -172,7 +172,7 @@
             color: var(--text);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 8px;
+            padding: 6px;
             resize: vertical;
             font-family: monospace;
             font-size: 13px;
@@ -180,29 +180,31 @@
 
         .steering-controls {
             display: grid;
-            gap: 8px;
+            gap: 4px;
         }
 
         .control-group {
             display: grid;
             grid-template-columns: 1fr auto;
-            gap: 8px;
+            gap: 6px;
             align-items: center;
+            padding: 4px 0;
         }
 
         .control-group input[type="range"] {
             width: 100%;
             background: var(--muted);
-            height: 6px;
-            border-radius: 3px;
+            height: 4px;
+            border-radius: 2px;
             outline: none;
         }
 
         .control-group span {
             color: var(--accent);
             font-weight: 600;
-            min-width: 30px;
+            min-width: 25px;
             text-align: right;
+            font-size: 12px;
         }
 
         .adapter-select {
@@ -312,17 +314,18 @@
                 <div class="steering-controls">
                     <div class="control-group">
                         <label>Extraction layer (from last)</label>
-                        <input id="extractLayer" type="range" min="-10" max="-1" value="-2" />
+                        <input id="extractLayer" type="range" min="-32" max="-1" value="-2" />
+                        <!-- Expand options for gemma -->
                         <span id="extractLayerValue">-2</span>
                     </div>
                     <div class="control-group">
                         <label>Application layer (from last)</label>
-                        <input id="applyLayer" type="range" min="-10" max="-1" value="-1" />
+                        <input id="applyLayer" type="range" min="-32" max="-1" value="-1" />
                         <span id="applyLayerValue">-1</span>
                     </div>
                     <div class="control-group">
                         <label>Alpha strength</label>
-                        <input id="alphaStrength" type="range" min="0.1" max="5.0" step="0.1" value="2.0" />
+                        <input id="alphaStrength" type="range" min="-5.0" max="5.0" step="0.1" value="2.0" />
                         <span id="alphaValue">2.0</span>
                     </div>
                 </div>
@@ -402,6 +405,8 @@
         function showApp() {
             document.getElementById('gate').style.display = 'none';
             document.getElementById('app').style.display = '';
+            // Resize panels after they become visible
+            setTimeout(resizePanelsToEqualWidth, 100);
         }
 
         async function call(path, payload) {
@@ -466,9 +471,19 @@
 
             document.getElementById('status').textContent = 'Loading adapter...';
             document.getElementById('loadAdapter').disabled = true;
+            document.getElementById('loadAdapter').textContent = 'Loading...';
 
             try {
+                // First load the adapter
                 await call('/start', { adapter_path: selectedAdapter });
+
+                // Update status to show warming up
+                document.getElementById('status').textContent = 'Model: warming up...';
+                document.getElementById('loadAdapter').textContent = 'Warming up...';
+
+                // Wait a bit for the warming up to complete
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
                 document.getElementById('status').textContent = 'Model: running';
                 document.getElementById('loadAdapter').disabled = true;
                 document.getElementById('loadAdapter').textContent = 'Adapter Loaded';
@@ -476,6 +491,7 @@
                 alert('Failed to load adapter: ' + e.message);
                 document.getElementById('status').textContent = 'Model: failed to load';
                 document.getElementById('loadAdapter').disabled = false;
+                document.getElementById('loadAdapter').textContent = 'Load Adapter';
             }
         };
 
@@ -588,6 +604,43 @@
                 document.getElementById('login').click();
             }
         });
+
+        // Dynamic resizing function to make both panels equal height by adjusting width
+        function resizePanelsToEqualHeight() {
+            const wrap = document.querySelector('.wrap');
+            const controlPanel = document.querySelector('.panel:first-child');
+            const chatPanel = document.querySelector('.panel.chat');
+
+            if (!controlPanel || !chatPanel) return;
+
+            // Get the natural heights of both panels
+            const controlHeight = controlPanel.scrollHeight;
+            const chatHeight = chatPanel.scrollHeight;
+
+            // Calculate the height difference
+            const heightDiff = Math.abs(controlHeight - chatHeight);
+
+            if (heightDiff > 50) { // Only adjust if there's a significant difference
+                // If control panel is shorter, make it wider to match chat height
+                if (controlHeight < chatHeight) {
+                    const newControlWidth = 280 + heightDiff * 0.5; // Adjust width based on height difference
+                    wrap.style.gridTemplateColumns = `${newControlWidth}px 1fr`;
+                    console.log(`Adjusted control panel width to ${newControlWidth}px for equal heights`);
+                }
+            }
+        }
+
+        // Resize panels on page load and window resize
+        window.addEventListener('load', resizePanelsToEqualHeight);
+        window.addEventListener('resize', resizePanelsToEqualHeight);
+
+        // Also resize when the app becomes visible (after login)
+        function showApp() {
+            document.getElementById('gate').style.display = 'none';
+            document.getElementById('app').style.display = '';
+            // Resize panels after they become visible
+            setTimeout(resizePanelsToEqualHeight, 100);
+        }
     </script>
 </body>
 

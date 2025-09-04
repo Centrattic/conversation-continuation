@@ -321,6 +321,18 @@ class ModelManager:
 
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
         self.model.eval()
+        
+        # Warm up the model to load checkpoint shards and avoid slow first inference
+        print("🔥 Warming up model to preload checkpoint shards...")
+        try:
+            with torch.no_grad():
+                # Create a dummy input to trigger checkpoint loading
+                dummy_input = torch.randint(0, len(self.tokenizer), (1, 10)).to(self.model.device)
+                _ = self.model(dummy_input)
+            print("✅ Model warmed up successfully - checkpoint shards loaded")
+        except Exception as e:
+            print(f"⚠️  Model warmup failed: {e}")
+        
         self.loaded = True
         return {
             "status": "started", 

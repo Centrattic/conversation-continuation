@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
     // This will be auto-updated by the Python app when ngrok starts
-    apiBase: 'https://905f1069fda4.ngrok-free.app',
+    apiBase: 'https://318c912c1bb3.ngrok-free.app',
     riyaName: 'Riya',
     owenName: 'Owen',
     maxNewTokens: 150,

@@ -76,6 +76,7 @@ def get_adapter_candidates_from_config():
         print(f"🔍 DEBUG: Full adapter paths: {[str(p) for p in full_paths]}")
         return full_paths
 
+
 # Get adapter candidates from config.js
 DEFAULT_ADAPTER_CANDIDATES = get_adapter_candidates_from_config()
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
@@ -833,24 +834,33 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
         text = message.strip()
         text = clean_for_sampling(text)
 
-        # Add to history with speaker token
-        session.history.append(f"\n[{assistant_name}] {text}")
-        session.turns += 1
-        session.transcript.append({"role": assistant_name, "content": text})
+        # Split by [Riya] tokens to get separate messages
+        message_parts = text.split(f"[{assistant_name}]")
+        for part in message_parts:
+            if part.strip():  # Only add non-empty parts
+                # Add to history with speaker token
+                session.history.append(f"\n[{assistant_name}] {part.strip()}")
+                session.turns += 1
+                session.transcript.append({
+                    "role": assistant_name,
+                    "content": part.strip()
+                })
 
-        # Log the bot response
-        if chat_log_file is not None:
-            try:
-                timestamp = datetime.now().isoformat()
-                chat_log_file.write(
-                    f"[{timestamp}] {assistant_name}: {text}\n")
-                chat_log_file.flush()
-            except Exception as e:
-                print(f"⚠️  Error writing bot response to chat log: {e}")
+                # Log the bot response
+                if chat_log_file is not None:
+                    try:
+                        timestamp = datetime.now().isoformat()
+                        chat_log_file.write(
+                            f"[{timestamp}] {assistant_name}: {part.strip()}\n"
+                        )
+                        chat_log_file.flush()
+                    except Exception as e:
+                        print(
+                            f"⚠️  Error writing bot response to chat log: {e}")
 
-        # Format each message with speaker name on new line
-        formatted_message = f"{assistant_name}: {text}"
-        all_responses.append(formatted_message)
+                # Format each message with speaker name on new line
+                formatted_message = f"{assistant_name}: {part.strip()}"
+                all_responses.append(formatted_message)
 
     # Return all responses with each on a new line
     response_text = "\n".join(all_responses)
@@ -1003,19 +1013,28 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
 
             # Add to history and transcript after streaming is complete
             text = clean_for_sampling(full_response)
-            session.history.append(f"\n[{assistant_name}] {text}")
-            session.turns += 1
-            session.transcript.append({
-                "role": assistant_name,
-                "content": text
-            })
+            # Split by [Riya] tokens to get separate messages
+            message_parts = text.split(f"[{assistant_name}]")
+            for part in message_parts:
+                if part.strip():  # Only add non-empty parts
+                    session.history.append(
+                        f"\n[{assistant_name}] {part.strip()}")
+                    session.turns += 1
+                    session.transcript.append({
+                        "role": assistant_name,
+                        "content": part.strip()
+                    })
 
             # Log the bot response
             if chat_log_file is not None:
                 try:
                     timestamp = datetime.now().isoformat()
-                    chat_log_file.write(
-                        f"[{timestamp}] {assistant_name}: {text}\n")
+                    # Log each message part separately
+                    for part in message_parts:
+                        if part.strip():
+                            chat_log_file.write(
+                                f"[{timestamp}] {assistant_name}: {part.strip()}\n"
+                            )
                     chat_log_file.flush()
                 except Exception as e:
                     print(f"⚠️  Error writing bot response to chat log: {e}")

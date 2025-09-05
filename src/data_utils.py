@@ -74,9 +74,8 @@ def clean_for_sampling(text: str) -> str:
     text = remove_mentions(text)
     # Remove any remaining special tokens
     text = re.sub(r'<[^>]+>', '', text)
-    # Clean up extra whitespace and newlines
+    # Clean up extra whitespace and remove newlines
     text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r'\n+', '\n', text)
 
     return text.strip()
 

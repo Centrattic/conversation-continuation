@@ -13,7 +13,7 @@ import unsloth
 from unsloth import FastLanguageModel
 import argparse
 
-from src.config import RIYA_NAME, FRIEND_NAME, MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN
+from src.config import RIYA_NAME, FRIEND_NAME, MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, bnb_config
 from src.model_utils import generate, generate_with_steering, stream_generate, stream_generate_steer
 from src.steering.steer_utils import generate_steering_vector
 from src.data_utils import clean_for_sampling
@@ -59,16 +59,10 @@ if model_type == "instruct":
         print(f"No processor found: {e}")
 
 # Load base model with quantization for large models
+quantization_config = bnb_config
 if "27b" in base_model_name.lower():
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-    )
     device_map = "cuda:0"
 else:
-    quantization_config = None
     device_map = "auto"
 
 print("Loading base model...")
@@ -102,7 +96,7 @@ lora_model = lora_model.to(torch.bfloat16)
 # Steering configuration (similar to sample_friend.py)
 if steer:
     layer_extract = -5  # layers range from -33 to -1 for extraction, going for output
-    layer_steer = -2    # layers range from -32 to -1, going for input
+    layer_steer = -2  # layers range from -32 to -1, going for input
     alpha = 0.5
 
     steer_dict = {
@@ -125,8 +119,7 @@ if steer:
         layer_from_last=layer_extract,
         processor=processor,
         is_instruct=model_type == "instruct",
-        current_speaker=RIYA_NAME
-    )
+        current_speaker=RIYA_NAME)
 
 history = []
 hist_count = 0  # up to 8 since thats curr length
@@ -168,68 +161,70 @@ while (1):
             # Use the new stream_generate_steer function
             print(f"[{RIYA_NAME}]: ", end="", flush=True)
             full_response = ""
-            
-            for token in stream_generate_steer(
-                lora_model,
-                full_prompt,
-                tokenizer,
-                steering_vector,
-                max_new_tokens=max_new_tokens,
-                layer_from_last=layer_steer,
-                processor=processor,
-                is_instruct=is_instruct,
-                target_speaker=target_speaker,
-                deployment=True
-            ):
+
+            for token in stream_generate_steer(lora_model,
+                                               full_prompt,
+                                               tokenizer,
+                                               steering_vector,
+                                               max_new_tokens=max_new_tokens,
+                                               layer_from_last=layer_steer,
+                                               processor=processor,
+                                               is_instruct=is_instruct,
+                                               target_speaker=target_speaker,
+                                               deployment=True):
                 print(token, end="", flush=True)
                 full_response += token
-            
+
             print()  # New line after streaming is complete
-            
+
             # Clean up the full response and add to history
             message = clean_for_sampling(full_response)
-            history.append(f"\n[{RIYA_NAME}] {message}")
-            hist_count += 1
+            # Split by [Riya] tokens to get separate messages
+            message_parts = message.split(f"[{RIYA_NAME}]")
+            for part in message_parts:
+                if part.strip():  # Only add non-empty parts
+                    history.append(f"\n[{RIYA_NAME}] {part.strip()}")
+                    hist_count += 1
         else:
             # Use the new stream_generate function
             print(f"[{RIYA_NAME}]: ", end="", flush=True)
             full_response = ""
-            
-            for token in stream_generate(
-                lora_model,
-                full_prompt,
-                tokenizer,
-                max_new_tokens=max_new_tokens,
-                processor=processor,
-                is_instruct=is_instruct,
-                target_speaker=target_speaker,
-                deployment=True
-            ):
+
+            for token in stream_generate(lora_model,
+                                         full_prompt,
+                                         tokenizer,
+                                         max_new_tokens=max_new_tokens,
+                                         processor=processor,
+                                         is_instruct=is_instruct,
+                                         target_speaker=target_speaker,
+                                         deployment=True):
                 print(token, end="", flush=True)
                 full_response += token
-            
+
             print()  # New line after streaming is complete
-            
+
             # Clean up the full response and add to history
             message = clean_for_sampling(full_response)
-            history.append(f"\n[{RIYA_NAME}] {message}")
-            hist_count += 1
-        
+            # Split by [Riya] tokens to get separate messages
+            message_parts = message.split(f"[{RIYA_NAME}]")
+            for part in message_parts:
+                if part.strip():  # Only add non-empty parts
+                    history.append(f"\n[{RIYA_NAME}] {part.strip()}")
+                    hist_count += 1
+
     else:
         # Non-streaming generation (original logic)
         if steer:
             # Generate with steering
-            messages = generate_with_steering(
-                lora_model,
-                full_prompt,
-                tokenizer,
-                steering_vector,
-                max_new_tokens=max_new_tokens,
-                layer_from_last=layer_steer,
-                is_instruct=is_instruct,
-                target_speaker=target_speaker,
-                processor=processor
-            )
+            messages = generate_with_steering(lora_model,
+                                              full_prompt,
+                                              tokenizer,
+                                              steering_vector,
+                                              max_new_tokens=max_new_tokens,
+                                              layer_from_last=layer_steer,
+                                              is_instruct=is_instruct,
+                                              target_speaker=target_speaker,
+                                              processor=processor)
         else:
             # Regular generation without steering
             messages = generate(lora_model,

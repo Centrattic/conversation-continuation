@@ -21,6 +21,48 @@ def load_image(img_ref: str):  # for vlms
     return Image.open(img_ref).convert("RGB")
 
 
+def check_speaker_patterns(
+    buffer: str,
+    target_speaker: str,
+    num_toks: int,
+) -> tuple[bool, str, bool]:
+    """
+    Check for speaker patterns in buffer and return action to take.
+    
+    Returns:
+        (pattern_found, action, skip_mode)
+        - pattern_found: True if any pattern was found
+        - action: "break", "yield_newline", "enter_skip_mode", "return", or "continue"
+        - skip_mode: True if should enter skip mode
+    """
+    patterns = [
+        f"[{FRIEND_NAME}]",  # [Owen]
+        f"[{FRIEND_NAME[:1]}",  # [O]
+        f"[{RIYA_NAME}]",  # [Riya] - should move to new line
+        f"[{RIYA_NAME[:1]}",  # [R - should move to new line
+        "<eot>",
+        "<eot_id>",
+        "<end_of_turn>",
+    ]
+
+    for pattern in patterns:
+        if pattern in buffer:
+            print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
+
+            if num_toks == 0 and pattern in [
+                    f"[{target_speaker}]", f"[{target_speaker[:1]}"
+            ]:
+                return True, "break", False
+            elif pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}"]:
+                return True, "yield_newline", False
+            elif num_toks == 0:  # skip the stop token if no target messages yet
+                return True, "enter_skip_mode", True
+            else:
+                return True, "return", False
+
+    return False, "continue", False
+
+
 def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
     """Remove the <end_of_turn> token from input_ids to allow continuous generation."""
     end_of_turn_token_id = tokenizer.encode("<end_of_turn>",
@@ -47,7 +89,7 @@ def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
                     input_ids[:last_end_of_turn_pos],
                     input_ids[last_end_of_turn_pos + 1:]
                 ])
-            
+
             model_inputs["input_ids"] = new_input_ids.unsqueeze(0)
 
             # Update attention mask to match the new length
@@ -61,7 +103,7 @@ def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
                     attention_mask[:last_end_of_turn_pos],
                     attention_mask[last_end_of_turn_pos + 1:]
                 ])
-            
+
             model_inputs["attention_mask"] = new_attention_mask.unsqueeze(0)
 
             # Update input_length
@@ -102,6 +144,7 @@ def get_results_folder(
     if experiment_name:
         return base_folder / experiment_name
     return base_folder
+
 
 def get_training_log_path(
     model_key: str,
@@ -285,7 +328,8 @@ def process_generation_output(
     Always returns a list of messages from the target speaker.
     """
     # Clean up control tokens
-    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>"):
+    for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>",
+                        "</s>"):
         generated_text = generated_text.replace(control_tok, "").strip()
 
     # Always cut off at the next speaker token if stop_tokens provided
@@ -305,9 +349,10 @@ def process_generation_output(
         print(f"🔍 DEBUG: generated_speaker_text: {generated_speaker_text}")
 
         messages = [
-                part.strip() for part in generated_speaker_text.split(target_speaker_token)
-                if part.strip()
-            ]
+            part.strip()
+            for part in generated_speaker_text.split(target_speaker_token)
+            if part.strip()
+        ]
 
         return messages
 
@@ -357,6 +402,7 @@ def generate(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
+        "cache_implementation": "dynamic",
     }
 
     outputs = model.generate(**generation_kwargs)
@@ -416,8 +462,7 @@ def stream_generate(
 
     if is_instruct and deployment:
         model_inputs, input_length = remove_end_of_turn_token(
-            model_inputs, input_length, tokenizer
-        )
+            model_inputs, input_length, tokenizer)
 
     # Streamer that handles detokenization efficiently
     streamer = TextIteratorStreamer(
@@ -425,8 +470,7 @@ def stream_generate(
         skip_prompt=True,
         skip_special_tokens=False,
         # Useful to avoid collapsing spaces or quotes mid-stream:
-        decode_kwargs=dict(clean_up_tokenization_spaces=False)
-    )
+        decode_kwargs=dict(clean_up_tokenization_spaces=False))
 
     generation_kwargs = {
         **model_inputs,
@@ -438,6 +482,7 @@ def stream_generate(
         "pad_token_id": tokenizer.eos_token_id,
         "use_cache": True,
         "streamer": streamer,
+        "cache_implementation": "dynamic",
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -446,59 +491,90 @@ def stream_generate(
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
-    
+    num_toks = 0
+    skip_mode = False
+
     try:
         for new_text in streamer:
-            # Debug: Print raw model output before filtering
-            print(f"🔍 DEBUG stream_generate raw output: '{new_text}'")
-            
-            buffer += new_text
-            
+            # print(f"🔍 DEBUG stream_generate raw output: '{new_text}'")
+
+            buffer = new_text  # buffer only one token at a time
+            # print("\nbuffer each time",buffer)
+
             # Clean up control tokens from the buffer
-            cleaned_buffer = buffer
-            for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
-                cleaned_buffer = cleaned_buffer.replace(control_tok, "")
-            
-            # Debug: Print buffer state
-            print(f"🔍 DEBUG stream_generate buffer: '{buffer}'")
-            print(f"🔍 DEBUG stream_generate cleaned: '{cleaned_buffer}'")
-            
+            has_control_tok = False
+            for control_tok in ("<bos>", "<s>", "</s>", "<start_of_turn>",
+                                "user", "assistant"):
+                if control_tok in buffer:
+                    has_control_tok = True
+                    break
+            if has_control_tok:
+                continue
+
+            # print(f"🔍 DEBUG stream_generate buffer: '{buffer}'")
+
+            # Handle skip mode - skip all tokens until we find target_speaker token
+            if skip_mode:
+                print(f"skip mode - buffer: '{buffer}'")
+                if f"[{target_speaker}]" in buffer or f"[{target_speaker[:1]}]" in buffer:
+                    # Found target speaker token, exit skip mode
+                    print(f"exiting skip mode - found target speaker token")
+                    skip_mode = False
+                    yield "\n"
+                    continue
+                else:  # skip this token
+                    print(f"skipping token: '{buffer}'")
+                    continue
+
             # Check for stop tokens that should end generation
-            stop_patterns = [
+            patterns = [
                 f"[{FRIEND_NAME}]",  # [Owen]
-                f"[{FRIEND_NAME[:1]}]",  # [O]
+                f"[{FRIEND_NAME[:1]}",  # [O]
                 f"[{RIYA_NAME}]",  # [Riya] - should move to new line
-                f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
+                f"[{RIYA_NAME[:1]}",  # [R - should move to new line
+                "<eot>",
+                "<eot_id>",
+                "<end_of_turn>",
             ]
-            
-            # Check if any stop pattern is in the cleaned buffer
-            for pattern in stop_patterns:
-                if pattern in cleaned_buffer:
-                    # Find the position of the stop pattern
-                    stop_pos = cleaned_buffer.find(pattern)
-                    
-                    # don't stop for target_speaker token early in generation
-                    if stop_pos == 0 and pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
-                        # Remove the token from buffer
-                        buffer = buffer[len(pattern):]
-                        continue
-                    
-                    # Yield everything before the stop pattern
-                    if stop_pos > 0:
-                        yield cleaned_buffer[:stop_pos]
-                    
+
+            # Check if any stop or newline pattern is in the cleaned buffer
+            pattern_found = False
+            for pattern in patterns:
+                if pattern in buffer:
+                    print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
+                    pattern_found = True
+                    if num_toks == 0 and pattern in [
+                            f"[{target_speaker}]", f"[{target_speaker[:1]}"
+                    ]:
+                        # print("top",buffer)
+                        break
                     # If it's target speaker token, yield newline instead of the token
-                    if pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
-                        yield "\n"
-                    
-                    # Stop generation
-                    return
-            
+                    elif pattern in [
+                            f"[{target_speaker}]", f"[{target_speaker[:1]}"
+                    ]:
+                        # print("middle",buffer)
+                        yield f"[{target_speaker}]\n"
+                        break
+                    # not great but better than the other option... to have no output
+                    elif num_toks == 0:  # skip the stop token if no riya messages yet
+                        # print("bottom",buffer)
+                        # print(f"entering skip mode - found non-target speaker token: '{pattern}'")
+                        skip_mode = True
+                        break
+                    else:
+                        return
+
+            # If we found a pattern and processed it, skip the text yielding
+            if pattern_found:
+                continue
+
             # If no stop pattern found, yield the cleaned text and clear buffer
-            if cleaned_buffer.strip():
-                yield cleaned_buffer
-            buffer = ""
-    
+            # print("generating output 1")
+            if buffer.strip():
+                # print(f"🔍 YIELDING TEXT: '{buffer}'")
+                yield buffer
+                num_toks += 1
+
     except Exception as e:
         print(f"Error in stream_generate: {e}")
         torch.cuda.empty_cache()
@@ -541,8 +617,7 @@ def stream_generate_steer(
 
     if is_instruct and deployment:
         model_inputs, input_length = remove_end_of_turn_token(
-            model_inputs, input_length, tokenizer
-        )
+            model_inputs, input_length, tokenizer)
 
     # Streamer that handles detokenization efficiently
     streamer = TextIteratorStreamer(
@@ -550,22 +625,23 @@ def stream_generate_steer(
         skip_prompt=True,
         skip_special_tokens=False,
         # Useful to avoid collapsing spaces or quotes mid-stream:
-        decode_kwargs=dict(clean_up_tokenization_spaces=False)
-    )
+        decode_kwargs=dict(clean_up_tokenization_spaces=False))
 
     # Steering hook function
     def add_vector_hook(module, input, output):
         # output shape: [batch_size, seq_len, hidden_size]
         # add vector to each token's activation but vector is [1, 1, hidden_size]
         hidden_states = output[0]
-        
+
         print(f"Hook called: hidden_states.shape={hidden_states.shape}")
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
         if hidden_states.shape[1] == 1:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
-            print(f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}")
+            print(
+                f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}"
+            )
             hidden_states += steering_vector.to(hidden_states.device)
             return (hidden_states, ) + output[1:]
         else:
@@ -579,9 +655,11 @@ def stream_generate_steer(
     # Register steering hook
     model_name = getattr(model.config, "_name_or_path", "")
     if "gemma-3-27b-it" in model_name.lower():
-        h = model.language_model.layers[layer_from_last].register_forward_hook(add_vector_hook)
-    else: # mistral
-        h = model.model.model.layers[layer_from_last].register_forward_hook(add_vector_hook)
+        h = model.language_model.layers[layer_from_last].register_forward_hook(
+            add_vector_hook)
+    else:  # mistral
+        h = model.model.model.layers[layer_from_last].register_forward_hook(
+            add_vector_hook)
 
     generation_kwargs = {
         **model_inputs,
@@ -593,6 +671,7 @@ def stream_generate_steer(
         "pad_token_id": tokenizer.eos_token_id,
         "use_cache": True,
         "streamer": streamer,
+        "cache_implementation": "dynamic",
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -601,64 +680,96 @@ def stream_generate_steer(
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
-    
+    num_toks = 0
+    skip_mode = False
+
     try:
         for new_text in streamer:
             # Debug: Print raw model output before filtering
             print(f"🔍 DEBUG stream_generate_steer raw output: '{new_text}'")
-            
-            buffer += new_text
-            
+
+            buffer = new_text  # buffer only one token at a time
+
             # Clean up control tokens from the buffer
-            cleaned_buffer = buffer
-            for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
-                cleaned_buffer = cleaned_buffer.replace(control_tok, "")
-            
+            has_control_tok = False
+            for control_tok in ("<bos>", "<s>", "</s>", "<start_of_turn>",
+                                "user", "assistant"):
+                if control_tok in buffer:
+                    has_control_tok = True
+                    break
+            if has_control_tok:
+                continue
+
             # Debug: Print buffer state
             print(f"🔍 DEBUG stream_generate_steer buffer: '{buffer}'")
-            print(f"🔍 DEBUG stream_generate_steer cleaned: '{cleaned_buffer}'")
-            
+
+            # Handle skip mode - skip all tokens until we find target_speaker token
+            if skip_mode:
+                print(f"skip mode - buffer: '{buffer}'")
+                if f"[{target_speaker}]" in buffer or f"[{target_speaker[:1]}]" in buffer:
+                    # Found target speaker token, exit skip mode
+                    print(f"exiting skip mode - found target speaker token")
+                    skip_mode = False
+                    yield "\n"
+                    continue
+                else:  # skip this token
+                    print(f"skipping token: '{buffer}'")
+                    continue
+
             # Check for stop tokens that should end generation
-            stop_patterns = [
+            patterns = [
                 f"[{FRIEND_NAME}]",  # [Owen]
-                f"[{FRIEND_NAME[:1]}]",  # [O]
+                f"[{FRIEND_NAME[:1]}",  # [O]
                 f"[{RIYA_NAME}]",  # [Riya] - should move to new line
-                f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
+                f"[{RIYA_NAME[:1]}",  # [R - should move to new line
+                "<eot>",
+                "<eot_id>",
+                "<end_of_turn>",
             ]
-            
-            # Check if any stop pattern is in the cleaned buffer
-            for pattern in stop_patterns:
-                if pattern in cleaned_buffer:
-                    # Find the position of the stop pattern
-                    stop_pos = cleaned_buffer.find(pattern)
-                    
-                    # don't stop for target_speaker token early in generation
-                    if stop_pos == 0 and pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
-                        # Remove the token from buffer
-                        buffer = buffer[len(pattern):]
-                        continue
-                    
-                    # Yield everything before the stop pattern
-                    if stop_pos > 0:
-                        yield cleaned_buffer[:stop_pos]
-                    
+
+            # Check if any stop or newline pattern is in the cleaned buffer
+            pattern_found = False
+            for pattern in patterns:
+                if pattern in buffer:
+                    print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
+                    pattern_found = True
+                    if num_toks == 0 and pattern in [
+                            f"[{target_speaker}]", f"[{target_speaker[:1]}"
+                    ]:
+                        # print("top",buffer)
+                        break
                     # If it's target speaker token, yield newline instead of the token
-                    if pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
-                        yield "\n"
-                    
-                    # Stop generation
-                    return
-            
+                    elif pattern in [
+                            f"[{target_speaker}]", f"[{target_speaker[:1]}"
+                    ]:
+                        # print("middle",buffer)
+                        yield f"[{target_speaker}]\n"
+                        break
+                    # not great but better than the other option... to have no output
+                    elif num_toks == 0:  # skip the stop token if no riya messages yet
+                        # print("bottom",buffer)
+                        # print(f"entering skip mode - found non-target speaker token: '{pattern}'")
+                        skip_mode = True
+                        break
+                    else:
+                        return
+
+            # If we found a pattern and processed it, skip the text yielding
+            if pattern_found:
+                continue
+
             # If no stop pattern found, yield the cleaned text and clear buffer
-            if cleaned_buffer.strip():
-                yield cleaned_buffer
-            buffer = ""
-    
+            # print("generating output 1")
+            if buffer.strip():
+                # print(f"🔍 YIELDING TEXT: '{buffer}'")
+                yield buffer
+                num_toks += 1
+
     except Exception as e:
         print(f"Error in stream_generate_steer: {e}")
         torch.cuda.empty_cache()
         yield f"[Error: {str(e)}]"
-    
+
     finally:
         # Always remove the hook when done
         if h is not None:
@@ -693,6 +804,7 @@ def generate_with_ppl(
         pad_token_id=tokenizer.eos_token_id,
         output_scores=True,
         return_dict_in_generate=True,
+        cache_implementation="dynamic",
     )
 
     full_ids = outputs.sequences[0]
@@ -756,6 +868,7 @@ def generate_with_activations(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
+        cache_implementation="dynamic",
     )
 
     # remove hook
@@ -812,14 +925,16 @@ def generate_with_steering(
         # output shape: [batch_size, seq_len, hidden_size]
         # add vector to each token's activation but vector is [1, 1, hidden_size]
         hidden_states = output[0]
-        
+
         print(f"Hook called: hidden_states.shape={hidden_states.shape}")
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
         if hidden_states.shape[1] == 1:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
-            print(f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}")
+            print(
+                f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}"
+            )
             hidden_states += steering_vector.to(hidden_states.device)
             return (hidden_states, ) + output[1:]
         else:
@@ -832,8 +947,9 @@ def generate_with_steering(
 
     model_name = getattr(model.config, "_name_or_path", "")
     if "gemma-3-27b-it" in model_name.lower():
-        h = model.language_model.layers[layer_from_last].register_forward_hook(add_vector_hook)
-    else: # mistral
+        h = model.language_model.layers[layer_from_last].register_forward_hook(
+            add_vector_hook)
+    else:  # mistral
         h = model.model.model.layers[layer_from_last].register_forward_hook(
             add_vector_hook)
 
@@ -846,12 +962,13 @@ def generate_with_steering(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
+        cache_implementation="dynamic",
     )
 
     # remove hook only if it was registered
     if h is not None:
         h.remove()
-    
+
     # Extract only the generated tokens (same as regular generate function)
     full_ids = outputs[0]
     gen_ids = full_ids[input_length:]

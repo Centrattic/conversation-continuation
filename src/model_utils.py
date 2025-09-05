@@ -384,6 +384,7 @@ def stream_generate(
     # Run generate on a background thread; the streamer yields chunks here.
     thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
     thread.start()
+    print(f"🎯 Generation thread started for streaming steering")
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
@@ -529,19 +530,18 @@ def stream_generate_steer(
         # add vector to each token's activation but vector is [1, 1, hidden_size]
         hidden_states = output[0]
 
-        print(f"Hook called: hidden_states.shape={hidden_states.shape}")
+        print(f"🎯 STEERING HOOK CALLED: hidden_states.shape={hidden_states.shape}")
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
         if hidden_states.shape[1] == 1:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
-            print(
-                f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}"
-            )
+            print(f"🎯 APPLYING STEERING: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}")
             hidden_states += steering_vector.to(hidden_states.device)
+            print(f"🎯 STEERING APPLIED SUCCESSFULLY")
             return (hidden_states, ) + output[1:]
         else:
-            print(f"Prompt step: skipping steering")
+            print(f"🎯 PROMPT STEP: skipping steering (seq_len={hidden_states.shape[1]})")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook
@@ -550,9 +550,13 @@ def stream_generate_steer(
 
     # Register steering hook
     model_name = getattr(model.config, "_name_or_path", "")
+    print(f"🎯 Registering steering hook for model: {model_name}")
+    print(f"🎯 Using layer_from_last: {layer_from_last}")
+    
     if "gemma-3-27b-it" in model_name.lower():
         h = model.language_model.layers[layer_from_last].register_forward_hook(
             add_vector_hook)
+        print(f"🎯 Hook registered on Gemma3 layer: {layer_from_last}")
     else:  # mistral
         h = model.model.model.layers[layer_from_last].register_forward_hook(
             add_vector_hook)
@@ -574,6 +578,7 @@ def stream_generate_steer(
     # Run generate on a background thread; the streamer yields chunks here.
     thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
     thread.start()
+    print(f"🎯 Generation thread started for streaming steering")
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
@@ -670,7 +675,10 @@ def stream_generate_steer(
     finally:
         # Always remove the hook when done
         if h is not None:
+            print(f"🎯 Removing steering hook")
             h.remove()
+        else:
+            print(f"🎯 No hook to remove (h was None)")
 
 
 @torch.no_grad()
@@ -831,6 +839,7 @@ def generate_with_steering(
                 f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}"
             )
             hidden_states += steering_vector.to(hidden_states.device)
+            print(f"🎯 STEERING APPLIED SUCCESSFULLY (NON-STREAM)")
             return (hidden_states, ) + output[1:]
         else:
             print(f"Prompt step: skipping steering")

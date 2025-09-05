@@ -799,7 +799,8 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
 
     if use_steering and model_manager.steering_enabled and model_manager.steering_vector is not None:
         # Use the pre-generated steering vector
-        print(f"🎯 Using stored steering vector for generation")
+        print(f"🎯 STEERING ENABLED: Using stored steering vector for generation")
+        print(f"🎯 STEERING CONFIG: apply_layer={apply_layer}, alpha={alpha_strength}")
         raw = generate_with_steering(model_manager.model,
                                      full_prompt,
                                      model_manager.tokenizer,
@@ -978,8 +979,8 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
         try:
             if use_steering and model_manager.steering_enabled and model_manager.steering_vector is not None:
                 # Use the pre-generated steering vector with streaming
-                print(
-                    f"🎯 Using stored steering vector for streaming generation")
+                print(f"🎯 STEERING ENABLED (STREAM): Using stored steering vector for streaming generation")
+                print(f"🎯 STEERING CONFIG (STREAM): apply_layer={apply_layer}, alpha={alpha_strength}")
                 for token in stream_generate_steer(
                         model_manager.model,
                         full_prompt,

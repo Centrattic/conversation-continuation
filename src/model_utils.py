@@ -449,42 +449,49 @@ def stream_generate(
     
     try:
         for new_text in streamer:
+            # Debug: Print raw model output before filtering
+            print(f"🔍 DEBUG stream_generate raw output: '{new_text}'")
+            
             buffer += new_text
-        
-        # Clean up control tokens from the buffer
-        cleaned_buffer = buffer
-        for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
-            cleaned_buffer = cleaned_buffer.replace(control_tok, "")
-        
-        # Check for stop tokens that should end generation
-        stop_patterns = [
-            f"[{FRIEND_NAME}]",  # [Owen]
-            f"[{FRIEND_NAME[:1]}]",  # [O]
-            f"[{RIYA_NAME}]",  # [Riya] - should move to new line
-            f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
-        ]
-        
-        # Check if any stop pattern is in the cleaned buffer
-        for pattern in stop_patterns:
-            if pattern in cleaned_buffer:
-                # Find the position of the stop pattern
-                stop_pos = cleaned_buffer.find(pattern)
-                
-                # Yield everything before the stop pattern
-                if stop_pos > 0:
-                    yield cleaned_buffer[:stop_pos]
-                
-                # If it's a Riya token, yield a newline instead of the token
-                if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
-                    yield "\n"
-                
-                # Stop generation
-                return
-        
-        # If no stop pattern found, yield the cleaned text and clear buffer
-        if cleaned_buffer.strip():
-            yield cleaned_buffer
-        buffer = ""
+            
+            # Clean up control tokens from the buffer
+            cleaned_buffer = buffer
+            for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
+                cleaned_buffer = cleaned_buffer.replace(control_tok, "")
+            
+            # Debug: Print buffer state
+            print(f"🔍 DEBUG stream_generate buffer: '{buffer}'")
+            print(f"🔍 DEBUG stream_generate cleaned: '{cleaned_buffer}'")
+            
+            # Check for stop tokens that should end generation
+            stop_patterns = [
+                f"[{FRIEND_NAME}]",  # [Owen]
+                f"[{FRIEND_NAME[:1]}]",  # [O]
+                f"[{RIYA_NAME}]",  # [Riya] - should move to new line
+                f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
+            ]
+            
+            # Check if any stop pattern is in the cleaned buffer
+            for pattern in stop_patterns:
+                if pattern in cleaned_buffer:
+                    # Find the position of the stop pattern
+                    stop_pos = cleaned_buffer.find(pattern)
+                    
+                    # Yield everything before the stop pattern
+                    if stop_pos > 0:
+                        yield cleaned_buffer[:stop_pos]
+                    
+                    # If it's a Riya token, yield a newline instead of the token
+                    if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
+                        yield "\n"
+                    
+                    # Stop generation
+                    return
+            
+            # If no stop pattern found, yield the cleaned text and clear buffer
+            if cleaned_buffer.strip():
+                yield cleaned_buffer
+            buffer = ""
     
     except Exception as e:
         print(f"Error in stream_generate: {e}")
@@ -591,12 +598,19 @@ def stream_generate_steer(
     
     try:
         for new_text in streamer:
+            # Debug: Print raw model output before filtering
+            print(f"🔍 DEBUG stream_generate_steer raw output: '{new_text}'")
+            
             buffer += new_text
             
             # Clean up control tokens from the buffer
             cleaned_buffer = buffer
             for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
                 cleaned_buffer = cleaned_buffer.replace(control_tok, "")
+            
+            # Debug: Print buffer state
+            print(f"🔍 DEBUG stream_generate_steer buffer: '{buffer}'")
+            print(f"🔍 DEBUG stream_generate_steer cleaned: '{cleaned_buffer}'")
             
             # Check for stop tokens that should end generation
             stop_patterns = [

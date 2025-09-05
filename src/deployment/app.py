@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -44,6 +44,8 @@ from unsloth import FastLanguageModel
 from src.model_utils import (
     generate,
     generate_with_steering,
+    stream_generate,
+    stream_generate_steer,
     detect_model_type,
     get_stop_tokens_for_speaker,
 )
@@ -825,6 +827,177 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     # Return all responses with each on a new line
     response_text = "\n".join(all_responses)
     return {"response": response_text}
+
+
+@app.post("/chat-stream")
+def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
+    """Stream chat responses for real-time output"""
+    global chat_log_file
+    
+    bot = payload.get("bot")
+    message = payload.get("message", "").strip()
+    steering = payload.get("steering", {}) or {}
+
+    if bot not in sessions:
+        raise HTTPException(status_code=400,
+                            detail="Invalid bot. Use 'riya' or 'owen'.")
+    if not message:
+        raise HTTPException(status_code=400, detail="Empty message.")
+
+    # Ensure model is loaded
+    model_manager.ensure_loaded()
+    
+    # Log the user message and steering config if enabled
+    if chat_log_file is not None:
+        try:
+            timestamp = datetime.now().isoformat()
+            user_name = OWEN_NAME if bot == "riya" else RIYA_NAME
+            chat_log_file.write(f"[{timestamp}] {user_name}: {message}\n")
+            
+            # Log steering configuration if enabled
+            use_steering = bool(steering.get("enabled"))
+            if use_steering:
+                steering_pairs = steering.get("pairs", [])
+                extract_layer = steering.get("extract_layer", -2)
+                apply_layer = steering.get("apply_layer", -1)
+                alpha_strength = steering.get("alpha", 2.0)
+                
+                chat_log_file.write(f"[{timestamp}] STEERING CONFIG:\n")
+                chat_log_file.write(f"[{timestamp}]   Enabled: {use_steering}\n")
+                chat_log_file.write(f"[{timestamp}]   Extract Layer: {extract_layer}\n")
+                chat_log_file.write(f"[{timestamp}]   Apply Layer: {apply_layer}\n")
+                chat_log_file.write(f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
+                
+                if steering_pairs:
+                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs:\n")
+                    for i, pair in enumerate(steering_pairs):
+                        pos = pair.get("positive", "").strip()
+                        neg = pair.get("negative", "").strip()
+                        if pos and neg:
+                            chat_log_file.write(f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n")
+                else:
+                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs: None\n")
+                chat_log_file.write(f"[{timestamp}] END STEERING CONFIG\n")
+            
+            chat_log_file.flush()
+        except Exception as e:
+            print(f"⚠️  Error writing to chat log: {e}")
+
+    session = sessions[bot]
+
+    speaker_user = OWEN_NAME if bot == "riya" else RIYA_NAME
+    session.transcript.append({"role": speaker_user, "content": message})
+
+    # Build clean conversation history without trailing speaker tokens
+    def needs_prefix(msg: str, name_a: str, name_b: str) -> bool:
+        s = msg.lstrip()
+        return not (s.startswith(f"[{name_a}]") or s.startswith(f"[{name_b}]"))
+
+    if bot == "riya":
+        if needs_prefix(message, OWEN_NAME, RIYA_NAME):
+            prompt_line = f"\n[{OWEN_NAME}] {message}"
+        else:
+            prompt_line = f"\n{message}"
+        assistant_name = RIYA_NAME
+    else:
+        if needs_prefix(message, RIYA_NAME, OWEN_NAME):
+            prompt_line = f"\n[{RIYA_NAME}] {message}"
+        else:
+            prompt_line = f"\n{message}"
+        assistant_name = OWEN_NAME
+
+    if session.turns > 8 and session.history:
+        session.history.pop(0)
+    session.history.append(prompt_line)
+    session.turns += 1
+
+    # Build the clean conversation history
+    full_prompt = "".join(session.history)
+
+    use_steering = bool(steering.get("enabled"))
+    steering_pairs = steering.get("pairs", [])
+    extract_layer = steering.get("extract_layer", -2)
+    apply_layer = steering.get("apply_layer", -1)
+    alpha_strength = steering.get("alpha", 2.0)
+
+    max_new = int(payload.get("max_new_tokens") or MAX_NEW_TOKENS)
+
+    # Use unified generation functions that handle both model types
+    is_instruct = model_manager.model_type == "instruct"
+    target_speaker = assistant_name  # Always pass target_speaker, let generate methods handle it
+
+    def generate_stream():
+        """Generator function for streaming responses"""
+        full_response = ""
+        
+        try:
+            if use_steering and model_manager.steering_enabled and model_manager.steering_vector is not None:
+                # Use the pre-generated steering vector with streaming
+                print(f"🎯 Using stored steering vector for streaming generation")
+                for token in stream_generate_steer(
+                    model_manager.model,
+                    full_prompt,
+                    model_manager.tokenizer,
+                    model_manager.steering_vector,
+                    max_new_tokens=max_new,
+                    layer_from_last=apply_layer,
+                    processor=model_manager.processor,
+                    is_instruct=is_instruct,
+                    target_speaker=target_speaker,
+                    deployment=True
+                ):
+                    full_response += token
+                    yield f"data: {token}\n\n"
+            else:
+                # No steering enabled or no steering vector available, use regular streaming generation
+                if use_steering and not model_manager.steering_enabled:
+                    print("⚠️  Steering enabled but no steering vector available. Please generate one first.")
+                
+                for token in stream_generate(
+                    model_manager.model,
+                    full_prompt,
+                    model_manager.tokenizer,
+                    max_new_tokens=max_new,
+                    processor=model_manager.processor,
+                    is_instruct=is_instruct,
+                    target_speaker=target_speaker,
+                    deployment=True
+                ):
+                    full_response += token
+                    yield f"data: {token}\n\n"
+            
+            # Add to history and transcript after streaming is complete
+            text = clean_for_sampling(full_response)
+            session.history.append(f"\n[{assistant_name}] {text}")
+            session.turns += 1
+            session.transcript.append({"role": assistant_name, "content": text})
+
+            # Log the bot response
+            if chat_log_file is not None:
+                try:
+                    timestamp = datetime.now().isoformat()
+                    chat_log_file.write(f"[{timestamp}] {assistant_name}: {text}\n")
+                    chat_log_file.flush()
+                except Exception as e:
+                    print(f"⚠️  Error writing bot response to chat log: {e}")
+            
+            # Send completion signal
+            yield f"data: [DONE]\n\n"
+            
+        except Exception as e:
+            print(f"❌ Error in streaming generation: {e}")
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 
 @app.get("/")

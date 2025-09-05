@@ -206,6 +206,29 @@
             color: var(--text);
         }
 
+        .streaming {
+            opacity: 0.7;
+        }
+
+        .streaming::after {
+            content: '▋';
+            animation: blink 1s infinite;
+            color: var(--accent);
+        }
+
+        @keyframes blink {
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0;
+            }
+        }
+
         .row {
             display: grid;
             grid-template-columns: 1fr auto;
@@ -463,12 +486,22 @@
                 const d = document.createElement('div');
                 d.className = 'msg ' + m.role;
 
+                // Add streaming class if message is currently streaming
+                if (m.streaming) {
+                    d.classList.add('streaming');
+                }
+
                 // Separate divs for multi msg responses
                 const lines = m.text.split('\n');
                 lines.forEach((line, index) => {
-                    if (line.trim()) { // Only create div for non-empty lines
+                    if (line.trim() || m.streaming) { // Show empty lines during streaming
                         const lineDiv = document.createElement('div');
                         lineDiv.className = 'msg ' + m.role;
+
+                        // Add streaming class if message is currently streaming
+                        if (m.streaming) {
+                            lineDiv.classList.add('streaming');
+                        }
 
                         const speakerPrefix = m.name + ': ';
                         if (line.startsWith(speakerPrefix)) {
@@ -636,24 +669,88 @@
             const applyLayer = parseInt(document.getElementById('applyLayer').value);
             const alphaStrength = parseFloat(document.getElementById('alphaStrength').value);
 
+            // Disable send button during streaming
+            const sendButton = document.getElementById('send');
+            const originalText = sendButton.textContent;
+            sendButton.disabled = true;
+            sendButton.textContent = 'Streaming...';
+
             try {
-                const r = await call('/chat', {
-                    bot,
-                    message: text,
-                    steering: {
-                        enabled: steerEnabled,
-                        pairs: steeringPairs,
-                        extract_layer: extractLayer,
-                        apply_layer: applyLayer,
-                        alpha: alphaStrength
-                    },
-                    max_new_tokens: Number(cfg.maxNewTokens || 80)
+                // Use streaming endpoint
+                const url = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/chat-stream';
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bot,
+                        message: text,
+                        steering: {
+                            enabled: steerEnabled,
+                            pairs: steeringPairs,
+                            extract_layer: extractLayer,
+                            apply_layer: applyLayer,
+                            alpha: alphaStrength
+                        },
+                        max_new_tokens: Number(cfg.maxNewTokens || 80)
+                    })
                 });
-                msgs[bot].push({ role: 'bot', text: r.response, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')) });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                // Create a streaming message entry
+                const botName = (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen'));
+                const streamingMessage = { role: 'bot', text: '', name: botName, streaming: true };
+                msgs[bot].push(streamingMessage);
                 render();
+
+                // Read the streaming response
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6); // Remove 'data: ' prefix
+
+                            if (data === '[DONE]') {
+                                // Streaming complete
+                                streamingMessage.streaming = false;
+                                render();
+                                break;
+                            } else if (data.startsWith('[ERROR]')) {
+                                // Error occurred
+                                streamingMessage.text = 'Error: ' + data.slice(7);
+                                streamingMessage.streaming = false;
+                                render();
+                                break;
+                            } else if (data.trim()) {
+                                // Add token to response
+                                fullResponse += data;
+                                streamingMessage.text = fullResponse;
+                                render();
+                            }
+                        }
+                    }
+                }
+
             } catch (e) {
+                // Remove the streaming message and add error message
+                msgs[bot].pop();
                 msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')) });
                 render();
+            } finally {
+                // Re-enable send button
+                sendButton.disabled = false;
+                sendButton.textContent = originalText;
             }
         }
         document.getElementById('send').onclick = send;

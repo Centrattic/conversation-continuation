@@ -1,12 +1,14 @@
 import torch
 from torch.nn.functional import softmax
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Iterator
 import json
 from datetime import datetime
 import io
 import requests
+import threading
 from PIL import Image
+from transformers import TextIteratorStreamer
 from src.config import MODEL_CONFIGS, RESULTS_FOLDER_STRUCTURE, BASE_RESULTS_FOLDER, INSTRUCT_SYSTEM_PROMPT, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, RIYA_NAME, FRIEND_NAME
 
 
@@ -307,6 +309,9 @@ def generate(
     is_instruct=False,
     target_speaker=None,
     deployment=True,
+    temperature=0.7,
+    top_p=0.95,
+    top_k=0,
 ) -> List[str] | str:
     """Generate text, handling both base and instruct models."""
     model_inputs, input_length = prepare_generation_inputs(
@@ -333,9 +338,9 @@ def generate(
         **model_inputs,
         "max_new_tokens": max_new_tokens,
         "do_sample": True,
-        "temperature": 0.7,
-        "top_p": 0.95,
-        "top_k": 0,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
         "cache_implementation": "static",
     }
@@ -362,6 +367,241 @@ def generate(
         return messages
     else:
         return out_text
+
+
+@torch.no_grad()
+def stream_generate(
+    model,
+    prompt: str,
+    tokenizer,
+    max_new_tokens=50,
+    processor=None,
+    is_instruct=False,
+    target_speaker=None,
+    deployment=True,
+    temperature=0.7,
+    top_p=0.95,
+    top_k=0,
+) -> Iterator[str]:
+    """Stream text generation with proper stop token handling.
+    
+    - Stops when it encounters stop tokens like [Owen], [O, etc.
+    - When it encounters [Riya] tokens, moves to new line instead of outputting
+    - Yields text chunks as they are generated
+    """
+    model.eval()
+
+    model_inputs, input_length = prepare_generation_inputs(
+        model,
+        tokenizer,
+        prompt,
+        processor=processor,
+        is_instruct=is_instruct,
+        target_speaker=target_speaker,
+    )
+
+    if is_instruct and deployment:
+        model_inputs, input_length = remove_end_of_turn_token(
+            model_inputs, input_length, tokenizer
+        )
+
+    # Streamer that handles detokenization efficiently
+    streamer = TextIteratorStreamer(
+        tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=False,
+        # Useful to avoid collapsing spaces or quotes mid-stream:
+        decode_kwargs=dict(clean_up_tokenization_spaces=False)
+    )
+
+    generation_kwargs = {
+        **model_inputs,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": True,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "pad_token_id": tokenizer.eos_token_id,
+        "use_cache": True,
+        "streamer": streamer,
+        "cache_implementation": "static",
+    }
+
+    # Run generate on a background thread; the streamer yields chunks here.
+    thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+    thread.start()
+
+    # Buffer to accumulate text and check for stop tokens
+    buffer = ""
+    
+    for new_text in streamer:
+        buffer += new_text
+        
+        # Check for stop tokens that should end generation
+        stop_patterns = [
+            f"[{FRIEND_NAME}]",  # [Owen]
+            f"[{FRIEND_NAME[:1]}]",  # [O]
+            f"[{RIYA_NAME}]",  # [Riya] - should move to new line
+            f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
+        ]
+        
+        # Check if any stop pattern is in the buffer
+        for pattern in stop_patterns:
+            if pattern in buffer:
+                # Find the position of the stop pattern
+                stop_pos = buffer.find(pattern)
+                
+                # Yield everything before the stop pattern
+                if stop_pos > 0:
+                    yield buffer[:stop_pos]
+                
+                # If it's a Riya token, yield a newline instead of the token
+                if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
+                    yield "\n"
+                
+                # Stop generation
+                return
+        
+        # If no stop pattern found, yield the new text and clear buffer
+        yield new_text
+        buffer = ""
+
+
+@torch.no_grad()
+def stream_generate_steer(
+    model,
+    prompt: str,
+    tokenizer,
+    steering_vector,
+    max_new_tokens=50,
+    layer_from_last=-1,
+    processor=None,
+    is_instruct=False,
+    target_speaker=None,
+    deployment=True,
+    temperature=0.7,
+    top_p=0.95,
+    top_k=0,
+) -> Iterator[str]:
+    """Stream text generation with steering and proper stop token handling.
+    
+    - Combines steering functionality with streaming
+    - Stops when it encounters stop tokens like [Owen], [O, etc.
+    - When it encounters [Riya] tokens, moves to new line instead of outputting
+    - Yields text chunks as they are generated
+    """
+    model.eval()
+
+    model_inputs, input_length = prepare_generation_inputs(
+        model,
+        tokenizer,
+        prompt,
+        processor=processor,
+        is_instruct=is_instruct,
+        target_speaker=target_speaker,
+    )
+
+    if is_instruct and deployment:
+        model_inputs, input_length = remove_end_of_turn_token(
+            model_inputs, input_length, tokenizer
+        )
+
+    # Streamer that handles detokenization efficiently
+    streamer = TextIteratorStreamer(
+        tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=False,
+        # Useful to avoid collapsing spaces or quotes mid-stream:
+        decode_kwargs=dict(clean_up_tokenization_spaces=False)
+    )
+
+    # Steering hook function
+    def add_vector_hook(module, input, output):
+        # output shape: [batch_size, seq_len, hidden_size]
+        # add vector to each token's activation but vector is [1, 1, hidden_size]
+        hidden_states = output[0]
+        
+        print(f"Hook called: hidden_states.shape={hidden_states.shape}")
+        # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
+        if hidden_states.shape[1] == 1:
+            # Check if steering vector is actually non-zero
+            steering_magnitude = steering_vector.abs().sum().item()
+            steering_max = steering_vector.abs().max().item()
+            print(f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}")
+            hidden_states += steering_vector.to(hidden_states.device)
+            return (hidden_states, ) + output[1:]
+        else:
+            print(f"Prompt step: skipping steering")
+            return output  # leave prompt pass untouched
+
+    # Check if steering vector is actually non-zero before registering hook
+    steering_magnitude = steering_vector.abs().sum().item()
+    print(f"Steering vector magnitude: {steering_magnitude:.6f}")
+
+    # Register steering hook
+    model_name = getattr(model.config, "_name_or_path", "")
+    if "gemma-3-27b-it" in model_name.lower():
+        h = model.language_model.layers[layer_from_last].register_forward_hook(add_vector_hook)
+    else: # mistral
+        h = model.model.model.layers[layer_from_last].register_forward_hook(add_vector_hook)
+
+    generation_kwargs = {
+        **model_inputs,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": True,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "pad_token_id": tokenizer.eos_token_id,
+        "use_cache": True,
+        "streamer": streamer,
+        "cache_implementation": "static",
+    }
+
+    # Run generate on a background thread; the streamer yields chunks here.
+    thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+    thread.start()
+
+    # Buffer to accumulate text and check for stop tokens
+    buffer = ""
+    
+    try:
+        for new_text in streamer:
+            buffer += new_text
+            
+            # Check for stop tokens that should end generation
+            stop_patterns = [
+                f"[{FRIEND_NAME}]",  # [Owen]
+                f"[{FRIEND_NAME[:1]}]",  # [O]
+                f"[{RIYA_NAME}]",  # [Riya] - should move to new line
+                f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
+            ]
+            
+            # Check if any stop pattern is in the buffer
+            for pattern in stop_patterns:
+                if pattern in buffer:
+                    # Find the position of the stop pattern
+                    stop_pos = buffer.find(pattern)
+                    
+                    # Yield everything before the stop pattern
+                    if stop_pos > 0:
+                        yield buffer[:stop_pos]
+                    
+                    # If it's a Riya token, yield a newline instead of the token
+                    if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
+                        yield "\n"
+                    
+                    # Stop generation
+                    return
+            
+            # If no stop pattern found, yield the new text and clear buffer
+            yield new_text
+            buffer = ""
+    
+    finally:
+        # Always remove the hook when done
+        if h is not None:
+            h.remove()
 
 
 @torch.no_grad()

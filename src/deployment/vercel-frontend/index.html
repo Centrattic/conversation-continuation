@@ -476,10 +476,12 @@
                     d.classList.add('streaming');
                 }
 
-                // Separate divs for multi msg responses
-                const lines = m.text.split('\n');
-                lines.forEach((line, index) => {
-                    if (line.trim() || m.streaming) { // Show empty lines during streaming
+                // Split by speaker tokens to handle multi-part messages
+                const speakerToken = `[${m.name}]`;
+                const parts = m.text.split(speakerToken);
+
+                parts.forEach((part, index) => {
+                    if (part.trim() || m.streaming) { // Show empty parts during streaming
                         const lineDiv = document.createElement('div');
                         lineDiv.className = 'msg ' + m.role;
 
@@ -490,15 +492,11 @@
 
                         const speakerPrefix = m.name + ': ';
 
-                        // Check if line already has speaker prefix (from backend splitting)
-                        if (line.startsWith(speakerPrefix)) {
-                            lineDiv.textContent = line;
-                        } else if (index === 0) {
-                            // First line gets the speaker prefix
-                            lineDiv.textContent = speakerPrefix + line;
+                        // First part gets the speaker prefix, subsequent parts don't
+                        if (index === 0) {
+                            lineDiv.textContent = speakerPrefix + part;
                         } else {
-                            // Subsequent lines should be indented or have no prefix
-                            lineDiv.textContent = line;
+                            lineDiv.textContent = part;
                         }
                         target.appendChild(lineDiv);
                     }
@@ -722,20 +720,9 @@
                                 render();
                                 break;
                             } else if (data.trim()) {
-                                // Check if this is a speaker token that should create a new line
-                                const botName = (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen'));
-                                const speakerToken = `[${botName}]\n`;
-
-                                if (data === speakerToken) {
-                                    // This is a speaker token, create a new message line
-                                    const newMessage = { role: 'bot', text: '', name: botName, streaming: true };
-                                    msgs[bot].push(newMessage);
-                                    streamingMessage = newMessage; // Update reference to current streaming message
-                                } else {
-                                    // Add token to current response
-                                    fullResponse += data;
-                                    streamingMessage.text = fullResponse;
-                                }
+                                // Add token to current response
+                                fullResponse += data;
+                                streamingMessage.text = fullResponse;
                                 render();
                             }
                         }

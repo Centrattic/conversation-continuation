@@ -295,7 +295,9 @@ def generate(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
-        "cache_implementation": "dynamic",
+        "output_attentions": False,
+        "output_hidden_states": False,
+        "return_dict_in_generate": False,
     }
 
     outputs = model.generate(**generation_kwargs)
@@ -373,9 +375,10 @@ def stream_generate(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
-        "use_cache": True,
+        "use_cache": False,
         "streamer": streamer,
-        "cache_implementation": "dynamic",
+        "output_attentions": False,
+        "output_hidden_states": False,
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -562,9 +565,10 @@ def stream_generate_steer(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
-        "use_cache": True,
+        "use_cache": False,
         "streamer": streamer,
-        "cache_implementation": "dynamic",
+        "output_attentions": False,
+        "output_hidden_states": False,
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -697,7 +701,6 @@ def generate_with_ppl(
         pad_token_id=tokenizer.eos_token_id,
         output_scores=True,
         return_dict_in_generate=True,
-        cache_implementation="dynamic",
     )
 
     full_ids = outputs.sequences[0]
@@ -761,7 +764,6 @@ def generate_with_activations(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation="dynamic",
     )
 
     # remove hook
@@ -855,7 +857,6 @@ def generate_with_steering(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation="dynamic",
     )
 
     # remove hook only if it was registered

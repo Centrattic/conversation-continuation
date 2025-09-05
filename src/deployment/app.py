@@ -39,6 +39,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoProcessor
 from peft import PeftModel
 import torch
+import unsloth
 from unsloth import FastLanguageModel
 
 from src.model_utils import (

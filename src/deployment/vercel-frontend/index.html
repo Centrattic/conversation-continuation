@@ -27,7 +27,7 @@
             margin: 0;
             background: var(--bg);
             color: var(--text);
-            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: "Courier New", Courier, monospace, "Apple Color Emoji", "Segoe UI Emoji";
         }
 
         .wrap {
@@ -52,53 +52,27 @@
         }
 
         /* Custom scrollbar for dark theme */
-        .panel.controls::-webkit-scrollbar {
+        .custom-scrollbar::-webkit-scrollbar {
             width: 8px;
         }
 
-        .panel.controls::-webkit-scrollbar-track {
+        .custom-scrollbar::-webkit-scrollbar-track {
             background: var(--muted);
             border-radius: 4px;
         }
 
-        .panel.controls::-webkit-scrollbar-thumb {
+        .custom-scrollbar::-webkit-scrollbar-thumb {
             background: var(--border);
             border-radius: 4px;
             transition: background 0.2s ease;
         }
 
-        .panel.controls::-webkit-scrollbar-thumb:hover {
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: var(--accent);
         }
 
         /* Firefox scrollbar */
-        .panel.controls {
-            scrollbar-width: thin;
-            scrollbar-color: var(--border) var(--muted);
-        }
-
-        /* Custom scrollbar for chat logs */
-        .log::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .log::-webkit-scrollbar-track {
-            background: var(--muted);
-            border-radius: 4px;
-        }
-
-        .log::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 4px;
-            transition: background 0.2s ease;
-        }
-
-        .log::-webkit-scrollbar-thumb:hover {
-            background: var(--accent);
-        }
-
-        /* Firefox scrollbar for chat logs */
-        .log {
+        .custom-scrollbar {
             scrollbar-width: thin;
             scrollbar-color: var(--border) var(--muted);
         }
@@ -174,7 +148,6 @@
         .log {
             background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 14px;
             padding: 14px;
             overflow-y: auto;
             min-height: 200px;
@@ -182,7 +155,9 @@
         }
 
         #log-riya {
-            background-image: url('./riya.jpg');
+            background-image:
+                linear-gradient(rgba(11, 11, 15, 0.9), rgba(11, 11, 15, 0.9)),
+                url('./riya.jpg');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -190,25 +165,13 @@
         }
 
         #log-owen {
-            background-image: url('./friend.jpg');
+            background-image:
+                linear-gradient(rgba(11, 11, 15, 0.9), rgba(11, 11, 15, 0.9)),
+                url('./friend.jpg');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-attachment: local;
-        }
-
-        #log-riya::before,
-        #log-owen::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(11, 11, 15, 0.9);
-            border-radius: 14px;
-            pointer-events: none;
-            z-index: 0;
         }
 
         .log>* {
@@ -405,7 +368,7 @@
     </div>
 
     <div id="app" class="wrap" style="display:none">
-        <div class="panel controls">
+        <div class="panel controls custom-scrollbar">
             <div class="title">Controls </div>
             <div class="btns">
                 <button id="loadAdapter" class="primary">Load Adapter</button>
@@ -465,8 +428,8 @@
                 </div>
             </div>
 
-            <div id="log-riya" class="log"></div>
-            <div id="log-owen" class="log" style="display:none"></div>
+            <div id="log-riya" class="log custom-scrollbar"></div>
+            <div id="log-owen" class="log custom-scrollbar" style="display:none"></div>
 
             <div>
                 <div class="row">

@@ -21,48 +21,6 @@ def load_image(img_ref: str):  # for vlms
     return Image.open(img_ref).convert("RGB")
 
 
-def check_speaker_patterns(
-    buffer: str,
-    target_speaker: str,
-    num_toks: int,
-) -> tuple[bool, str, bool]:
-    """
-    Check for speaker patterns in buffer and return action to take.
-    
-    Returns:
-        (pattern_found, action, skip_mode)
-        - pattern_found: True if any pattern was found
-        - action: "break", "yield_newline", "enter_skip_mode", "return", or "continue"
-        - skip_mode: True if should enter skip mode
-    """
-    patterns = [
-        f"[{FRIEND_NAME}]",  # [Owen]
-        f"[{FRIEND_NAME[:1]}",  # [O]
-        f"[{RIYA_NAME}]",  # [Riya] - should move to new line
-        f"[{RIYA_NAME[:1]}",  # [R - should move to new line
-        "<eot>",
-        "<eot_id>",
-        "<end_of_turn>",
-    ]
-
-    for pattern in patterns:
-        if pattern in buffer:
-            print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
-
-            if num_toks == 0 and pattern in [
-                    f"[{target_speaker}]", f"[{target_speaker[:1]}"
-            ]:
-                return True, "break", False
-            elif pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}"]:
-                return True, "yield_newline", False
-            elif num_toks == 0:  # skip the stop token if no target messages yet
-                return True, "enter_skip_mode", True
-            else:
-                return True, "return", False
-
-    return False, "continue", False
-
-
 def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
     """Remove the <end_of_turn> token from input_ids to allow continuous generation."""
     end_of_turn_token_id = tokenizer.encode("<end_of_turn>",
@@ -145,18 +103,6 @@ def get_results_folder(
         return base_folder / experiment_name
     return base_folder
 
-
-def get_training_log_path(
-    model_key: str,
-    experiment_name: str,
-) -> Path:
-    """Get the training log path for a model and experiment."""
-    return get_results_folder(
-        model_key,
-        experiment_name,
-    ) / "log.json"
-
-
 def create_experiment_folder(
     model_key: str,
     experiment_name: str,
@@ -188,59 +134,6 @@ def save_experiment_config(
     config_path = folder / "experiment_config.json"
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
-
-
-def load_experiment_config(
-    model_key: str,
-    experiment_name: str,
-) -> Dict:
-    """Load experiment configuration from a JSON file."""
-    config_path = get_results_folder(
-        model_key,
-        experiment_name,
-    ) / "experiment_config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(
-            f"Experiment config not found at {config_path}")
-
-    with open(config_path, 'r') as f:
-        return json.load(f)
-
-
-def list_experiments(model_key: str) -> List[str]:
-    """List all experiments for a given model."""
-    base_folder = get_results_folder(model_key)
-    if not base_folder.exists():
-        return []
-
-    experiments = []
-    for item in base_folder.iterdir():
-        if item.is_dir() and (item / "experiment_config.json").exists():
-            experiments.append(item.name)
-
-    return sorted(experiments)
-
-
-def get_latest_experiment(model_key: str) -> Optional[str]:
-    """Get the most recent experiment for a given model."""
-    experiments = list_experiments(model_key)
-    if not experiments:
-        return None
-
-    # Sort by modification time
-    base_folder = get_results_folder(model_key)
-    experiments_with_time = []
-    for exp in experiments:
-        exp_path = base_folder / exp
-        mtime = exp_path.stat().st_mtime
-        experiments_with_time.append((
-            exp,
-            mtime,
-        ))
-
-    experiments_with_time.sort(key=lambda x: x[1], reverse=True)
-    return experiments_with_time[0][0]
-
 
 # Generation functions (keeping existing functionality)
 @torch.no_grad()

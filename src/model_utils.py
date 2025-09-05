@@ -342,7 +342,6 @@ def generate(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
-        "cache_implementation": "static",
     }
 
     outputs = model.generate(**generation_kwargs)
@@ -640,7 +639,6 @@ def generate_with_ppl(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation="static",
         output_scores=True,
         return_dict_in_generate=True,
     )
@@ -706,7 +704,6 @@ def generate_with_activations(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation="static",
     )
 
     # remove hook
@@ -797,7 +794,6 @@ def generate_with_steering(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation="static",
     )
 
     # remove hook only if it was registered

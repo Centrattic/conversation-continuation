@@ -477,12 +477,16 @@ def stream_generate(
                     # Find the position of the stop pattern
                     stop_pos = cleaned_buffer.find(pattern)
                     
+                    # don't stop for target_speaker token early in generation
+                    if stop_pos == 0 and pattern == f"[{target_speaker}]":
+                        continue
+                    
                     # Yield everything before the stop pattern
                     if stop_pos > 0:
                         yield cleaned_buffer[:stop_pos]
                     
-                    # If it's a Riya token, yield a newline instead of the token
-                    if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
+                    # If it's target speaker token, yield newline instead of the token
+                    if pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
                         yield "\n"
                     
                     # Stop generation
@@ -626,12 +630,16 @@ def stream_generate_steer(
                     # Find the position of the stop pattern
                     stop_pos = cleaned_buffer.find(pattern)
                     
+                    # don't stop for target_speaker token early in generation
+                    if stop_pos == 0 and pattern == f"[{target_speaker}]":
+                        continue
+                    
                     # Yield everything before the stop pattern
                     if stop_pos > 0:
                         yield cleaned_buffer[:stop_pos]
                     
-                    # If it's a Riya token, yield a newline instead of the token
-                    if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
+                    # If it's target speaker token, yield newline instead of the token
+                    if pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
                         yield "\n"
                     
                     # Stop generation

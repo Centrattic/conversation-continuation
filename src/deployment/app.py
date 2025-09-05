@@ -10,7 +10,7 @@ This does NOT use vLLM. It uses HF + PEFT locally and the project's sampling uti
 Large models (like Gemma-27B) are automatically quantized to 4-bit and loaded on a single GPU
 to avoid device mismatch issues and reduce memory usage.
 """
-
+import unsloth
 import os
 import sys
 import gc
@@ -39,7 +39,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoProcessor
 from peft import PeftModel
 import torch
-import unsloth
 from unsloth import FastLanguageModel
 
 from src.model_utils import (

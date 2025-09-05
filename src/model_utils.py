@@ -537,8 +537,8 @@ def stream_generate_steer(
             print("debug steering applied successfully")
             return (hidden_states, ) + rest if rest is not None else hidden_states
         else:
-            seq_info = hidden_states.shape[1] if hidden_states.dim() == 3 else '2D'
-            print(f"debug prompt step: skipping steering (seq_len={seq_info})")
+            # seq_info = hidden_states.shape[1] if hidden_states.dim() == 3 else '2D'
+            # print(f"debug prompt step: skipping steering (seq_len={seq_info})")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook
@@ -853,7 +853,7 @@ def generate_with_steering(
             print("debug steering applied successfully (non-stream)")
             return (hidden_states, ) + rest if rest is not None else hidden_states
         else:
-            print("debug prompt step: skipping steering")
+            # print("debug prompt step: skipping steering")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook

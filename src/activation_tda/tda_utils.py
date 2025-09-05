@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from datetime import datetime
 
-from src.config import FRIEND_ID, FRIEND_NAME, RIYA_NAME, RIYA_ID, RESULTS_FOLDER
+from src.config import FRIEND_ID, FRIEND_NAME, RIYA_NAME, RIYA_ID, OLD_RESULTS_FOLDER
 
 
 def aggregate_activations(  # ToDo: is there a way to average across the top few?
@@ -179,7 +179,7 @@ class SingleLayerActivationCache:
         self,
         hidden_size: int,
         max_seq_len: int,
-        base_dir: Path = Path(f"./{RESULTS_FOLDER}/activation_cache"),
+        base_dir: Path = Path(f"./{OLD_RESULTS_FOLDER}/activation_cache"),
         prefix: str = "final",
     ):
         self.base_dir = base_dir

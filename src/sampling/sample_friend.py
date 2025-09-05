@@ -11,7 +11,7 @@ import argparse
 from datetime import datetime
 import json
 
-from src.config import FRIEND_ID, OLD_RESULTS_FOLDER, RIYA_NAME, FRIEND_NAME, MODEL_NAME, RESULTS_FOLDER, CONVO_FOLDER, bnb_config
+from src.config import FRIEND_ID, OLD_RESULTS_FOLDER, RIYA_NAME, FRIEND_NAME, MODEL_CONFIGS, CONVO_FOLDER, bnb_config
 from src.model_utils import generate, generate_with_activations, generate_with_steering, generate_with_ppl
 from src.logger import ConversationLogger
 from src.activation_tda.tda_utils import find_topk_train_samples, SingleLayerActivationCache, aggregate_activations
@@ -35,8 +35,9 @@ if save_convo:
 else:
     logger = ConversationLogger()  # logger outputs just print to console
 
-base_model_name = Path(f"{MODEL_NAME}")
-adapter_path = Path(f"./{RESULTS_FOLDER}/lora_train/lora_adapter")
+MODEL_NAME = MODEL_CONFIGS["mistral-7b"]["model_name"]
+base_model_name = MODEL_NAME  # must be a string repo id for HF hub
+adapter_path = Path(f"./models/mistral-7b/mistral-results-7-27-25/lora_train/lora_adapter")
 max_new_tokens = 40
 
 # load new tokenizer, same if we didn't add new tokens, else different
@@ -83,7 +84,7 @@ if steer:
     steer_dict_w = {"wholesome": 1, "perverted": -1}
     extract_w = -5
     steer_w = -1
-    alpha_w = 2
+    alpha_w = 4
 
     steering_vector = generate_steering_vector(lora_model,
                                                tokenizer,
@@ -131,6 +132,10 @@ while (1):
                                                  tokenizer,
                                                  max_new_tokens=max_new_tokens)
 
+    # Ensure output is a string
+    if isinstance(lora_out, list):
+        lora_out = "".join(lora_out)
+
     index = lora_out.find(
         f"[{RIYA_NAME}]"
     )  # oh but sometimes outputs [R token and not [RIYA] both tokens (or more than 1?), since that is the split
@@ -160,7 +165,7 @@ while (1):
         agg_gen_acts = aggregate_activations(gen_acts,
                                              agg)  # mean activation vector
 
-        mistral_cache_info = f"{RESULTS_FOLDER}/activation_cache/final.meta.json"
+        mistral_cache_info = f"models/mistral-7b/mistral-results-7-27-25/activation_cache/final.meta.json"
         d = json.load(open(mistral_cache_info))
         hidden_size, max_seq_len = d['hidden_size'], d['max_seq_len']
 

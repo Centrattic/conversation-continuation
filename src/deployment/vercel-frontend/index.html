@@ -77,6 +77,32 @@
             scrollbar-color: var(--border) var(--muted);
         }
 
+        /* Custom scrollbar for chat logs */
+        .log::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .log::-webkit-scrollbar-track {
+            background: var(--muted);
+            border-radius: 4px;
+        }
+
+        .log::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+            transition: background 0.2s ease;
+        }
+
+        .log::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* Firefox scrollbar for chat logs */
+        .log {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) var(--muted);
+        }
+
         .title {
             font-weight: 700;
             font-size: 18px;
@@ -155,23 +181,23 @@
             position: relative;
         }
 
-        #log-riya::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+        #log-riya {
             background-image: url('./riya.jpg');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            opacity: 0.1;
-            border-radius: 14px;
-            pointer-events: none;
-            z-index: 0;
+            background-attachment: local;
         }
 
+        #log-owen {
+            background-image: url('./friend.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: local;
+        }
+
+        #log-riya::before,
         #log-owen::before {
             content: '';
             position: absolute;
@@ -179,11 +205,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-image: url('./friend.jpg');
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            opacity: 0.1;
+            background: rgba(11, 11, 15, 0.9);
             border-radius: 14px;
             pointer-events: none;
             z-index: 0;

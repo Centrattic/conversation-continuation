@@ -437,6 +437,11 @@ def stream_generate(
     for new_text in streamer:
         buffer += new_text
         
+        # Clean up control tokens from the buffer
+        cleaned_buffer = buffer
+        for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
+            cleaned_buffer = cleaned_buffer.replace(control_tok, "")
+        
         # Check for stop tokens that should end generation
         stop_patterns = [
             f"[{FRIEND_NAME}]",  # [Owen]
@@ -445,15 +450,15 @@ def stream_generate(
             f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
         ]
         
-        # Check if any stop pattern is in the buffer
+        # Check if any stop pattern is in the cleaned buffer
         for pattern in stop_patterns:
-            if pattern in buffer:
+            if pattern in cleaned_buffer:
                 # Find the position of the stop pattern
-                stop_pos = buffer.find(pattern)
+                stop_pos = cleaned_buffer.find(pattern)
                 
                 # Yield everything before the stop pattern
                 if stop_pos > 0:
-                    yield buffer[:stop_pos]
+                    yield cleaned_buffer[:stop_pos]
                 
                 # If it's a Riya token, yield a newline instead of the token
                 if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
@@ -462,8 +467,9 @@ def stream_generate(
                 # Stop generation
                 return
         
-        # If no stop pattern found, yield the new text and clear buffer
-        yield new_text
+        # If no stop pattern found, yield the cleaned text and clear buffer
+        if cleaned_buffer.strip():
+            yield cleaned_buffer
         buffer = ""
 
 
@@ -569,6 +575,11 @@ def stream_generate_steer(
         for new_text in streamer:
             buffer += new_text
             
+            # Clean up control tokens from the buffer
+            cleaned_buffer = buffer
+            for control_tok in ("<bos>", "<eot>", "<eot_id>", "<end_of_turn>", "<s>", "</s>", "<start_of_turn>", "user", "assistant"):
+                cleaned_buffer = cleaned_buffer.replace(control_tok, "")
+            
             # Check for stop tokens that should end generation
             stop_patterns = [
                 f"[{FRIEND_NAME}]",  # [Owen]
@@ -577,15 +588,15 @@ def stream_generate_steer(
                 f"[{RIYA_NAME[:1]}]",  # [R] - should move to new line
             ]
             
-            # Check if any stop pattern is in the buffer
+            # Check if any stop pattern is in the cleaned buffer
             for pattern in stop_patterns:
-                if pattern in buffer:
+                if pattern in cleaned_buffer:
                     # Find the position of the stop pattern
-                    stop_pos = buffer.find(pattern)
+                    stop_pos = cleaned_buffer.find(pattern)
                     
                     # Yield everything before the stop pattern
                     if stop_pos > 0:
-                        yield buffer[:stop_pos]
+                        yield cleaned_buffer[:stop_pos]
                     
                     # If it's a Riya token, yield a newline instead of the token
                     if pattern in [f"[{RIYA_NAME}]", f"[{RIYA_NAME[:1]}]"]:
@@ -594,8 +605,9 @@ def stream_generate_steer(
                     # Stop generation
                     return
             
-            # If no stop pattern found, yield the new text and clear buffer
-            yield new_text
+            # If no stop pattern found, yield the cleaned text and clear buffer
+            if cleaned_buffer.strip():
+                yield cleaned_buffer
             buffer = ""
     
     finally:

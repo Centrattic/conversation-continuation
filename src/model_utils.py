@@ -70,11 +70,6 @@ def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
             formatted_text = tokenizer.decode(model_inputs["input_ids"][0],
                                               skip_special_tokens=False)
 
-            print("🔍 DEBUG removed <end_of_turn> token")
-            print(formatted_text)
-            print(f"  New input length: {input_length}")
-            print("=" * 50)
-
     return model_inputs, input_length
 
 
@@ -177,22 +172,20 @@ def prepare_generation_inputs(
         else:
             raise ValueError("No processor available")
 
-        # debug
-        print("🔍 DEBUG prepare_generation_inputs (instruct):")
-        print(f"  Messages: {messages}")
-        print(f"  Model inputs: {model_inputs}")
-        print("=" * 50)
+        # key debug: inputs after formatting (instruct)
+        print("debug prepare_generation_inputs (instruct):")
+        print(f"messages: {messages}")
+        print(f"model inputs: {model_inputs}")
     else:
         # For base models, add the target speaker token to the prompt
         if target_speaker:
             target_token = RIYA_SPEAKER_TOKEN if target_speaker == RIYA_NAME else FRIEND_SPEAKER_TOKEN
             prompt = f"{prompt}\n{target_token}"
 
-        # DEBUG: Print base model prompt
-        print("🔍 DEBUG prepare_generation_inputs (base):")
-        print(f"  Target speaker: {target_speaker}")
-        print(f"  Final prompt: {repr(prompt)}")
-        print("=" * 50)
+        # key debug: inputs after formatting (base)
+        print("debug prepare_generation_inputs (base):")
+        print(f"target speaker: {target_speaker}")
+        print(f"final prompt: {repr(prompt)}")
 
         model_inputs = tokenizer(
             prompt,
@@ -239,7 +232,7 @@ def process_generation_output(
 
         generated_speaker_text = target_speaker_token + generated_text
 
-        print(f"🔍 DEBUG: generated_speaker_text: {generated_speaker_text}")
+        print(f"debug generated_speaker_text: {generated_speaker_text}")
 
         messages = [
             part.strip()
@@ -306,9 +299,9 @@ def generate(
     gen_ids = full_ids[input_length:]
     out_text = tokenizer.decode(gen_ids, skip_special_tokens=False).strip()
 
-    print("🔍 DEBUG generate (instruct):")
-    print(f"  Out text: {out_text}")
-    print("=" * 50)
+    # key debug: outputs
+    print("debug generate:")
+    print(f"out text: {out_text}")
 
     if target_speaker:
         stop_tokens = get_stop_tokens_for_speaker(target_speaker)
@@ -384,7 +377,7 @@ def stream_generate(
     # Run generate on a background thread; the streamer yields chunks here.
     thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
     thread.start()
-    print(f"🎯 Generation thread started for streaming steering")
+    print("generation thread started for streaming")
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
@@ -393,10 +386,8 @@ def stream_generate(
 
     try:
         for new_text in streamer:
-            # print(f"🔍 DEBUG stream_generate raw output: '{new_text}'")
 
             buffer = new_text  # buffer only one token at a time
-            # print("\nbuffer each time",buffer)
 
             # Clean up control tokens from the buffer
             has_control_tok = False
@@ -408,19 +399,15 @@ def stream_generate(
             if has_control_tok:
                 continue
 
-            # print(f"🔍 DEBUG stream_generate buffer: '{buffer}'")
 
             # Handle skip mode - skip all tokens until we find target_speaker token
             if skip_mode:
-                print(f"skip mode - buffer: '{buffer}'")
                 if f"[{target_speaker}]" in buffer or f"[{target_speaker[:1]}]" in buffer:
                     # Found target speaker token, exit skip mode
-                    print(f"exiting skip mode - found target speaker token")
                     skip_mode = False
                     yield "\n"
                     continue
                 else:  # skip this token
-                    print(f"skipping token: '{buffer}'")
                     continue
 
             # Check for stop tokens that should end generation
@@ -438,24 +425,19 @@ def stream_generate(
             pattern_found = False
             for pattern in patterns:
                 if pattern in buffer:
-                    print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
                     pattern_found = True
                     if num_toks == 0 and pattern in [
                             f"[{target_speaker}]", f"[{target_speaker[:1]}"
                     ]:
-                        # print("top",buffer)
                         break
                     # If it's target speaker token, yield newline instead of the token
                     elif pattern in [
                             f"[{target_speaker}]", f"[{target_speaker[:1]}"
                     ]:
-                        # print("middle",buffer)
                         yield f"[{target_speaker}]\n"
                         break
                     # not great but better than the other option... to have no output
                     elif num_toks == 0:  # skip the stop token if no riya messages yet
-                        # print("bottom",buffer)
-                        # print(f"entering skip mode - found non-target speaker token: '{pattern}'")
                         skip_mode = True
                         break
                     else:
@@ -466,14 +448,12 @@ def stream_generate(
                 continue
 
             # If no stop pattern found, yield the cleaned text and clear buffer
-            # print("generating output 1")
             if buffer.strip():
-                # print(f"🔍 YIELDING TEXT: '{buffer}'")
                 yield buffer
                 num_toks += 1
 
     except Exception as e:
-        print(f"Error in stream_generate: {e}")
+        print(f"error in stream_generate: {e}")
         torch.cuda.empty_cache()
         yield f"[Error: {str(e)}]"
 
@@ -496,7 +476,8 @@ def stream_generate_steer(
 ) -> Iterator[str]:
     """Stream text generation with steering and proper stop token handling.
     
-    - Combines steering functionality with streaming
+    - Uses generate_with_steering in a background thread for proper steering
+    - Uses TextIteratorStreamer for real streaming
     - Stops when it encounters stop tokens like [Owen], [O, etc.
     - When it encounters [Riya] tokens, moves to new line instead of outputting
     - Yields text chunks as they are generated
@@ -530,37 +511,24 @@ def stream_generate_steer(
         # add vector to each token's activation but vector is [1, 1, hidden_size]
         hidden_states = output[0]
 
-        print(f"🎯 STEERING HOOK CALLED: hidden_states.shape={hidden_states.shape}")
+        print(f"debug steering hook called: hidden_states.shape={hidden_states.shape}")
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
         if hidden_states.shape[1] == 1:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
-            print(f"🎯 APPLYING STEERING: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}")
+            print(f"debug applying steering: magnitude={steering_magnitude:.6f}, max={steering_max:.6f}")
             hidden_states += steering_vector.to(hidden_states.device)
-            print(f"🎯 STEERING APPLIED SUCCESSFULLY")
+            print("debug steering applied successfully")
             return (hidden_states, ) + output[1:]
         else:
-            print(f"🎯 PROMPT STEP: skipping steering (seq_len={hidden_states.shape[1]})")
+            print(f"debug prompt step: skipping steering (seq_len={hidden_states.shape[1]})")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook
     steering_magnitude = steering_vector.abs().sum().item()
-    print(f"Steering vector magnitude: {steering_magnitude:.6f}")
-
-    # Register steering hook
-    model_name = getattr(model.config, "_name_or_path", "")
-    print(f"🎯 Registering steering hook for model: {model_name}")
-    print(f"🎯 Using layer_from_last: {layer_from_last}")
+    print(f"debug steering vector magnitude: {steering_magnitude:.6f}")
     
-    if "gemma-3-27b-it" in model_name.lower():
-        h = model.language_model.layers[layer_from_last].register_forward_hook(
-            add_vector_hook)
-        print(f"🎯 Hook registered on Gemma3 layer: {layer_from_last}")
-    else:  # mistral
-        h = model.model.model.layers[layer_from_last].register_forward_hook(
-            add_vector_hook)
-
     generation_kwargs = {
         **model_inputs,
         "max_new_tokens": max_new_tokens,
@@ -569,16 +537,42 @@ def stream_generate_steer(
         "top_p": top_p,
         "top_k": top_k,
         "pad_token_id": tokenizer.eos_token_id,
-        "use_cache": False,
+        "use_cache": True, # so we process only one token at a time
         "streamer": streamer,
         "output_attentions": False,
         "output_hidden_states": False,
     }
 
-    # Run generate on a background thread; the streamer yields chunks here.
-    thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+    # Create a steering-enabled generate method
+    def generate_with_steering_method(**kwargs):
+        # Register steering hook
+        h = None
+        model_name = getattr(model.config, "_name_or_path", "")
+        print(f"debug registering steering hook for model: {model_name}")
+        print(f"debug using layer_from_last: {layer_from_last}")
+        
+        if "gemma-3-27b-it" in model_name.lower():
+            h = model.language_model.layers[layer_from_last].register_forward_hook(
+                add_vector_hook)
+        else:  # mistral
+            h = model.model.model.layers[layer_from_last].register_forward_hook(
+                add_vector_hook)
+        
+        try:
+            # Call the original generate method
+            return model.generate(**kwargs)
+        finally:
+            # Always remove the hook when done
+            if h is not None:
+                print("debug removing steering hook")
+                h.remove()
+            else:
+                print("debug no hook to remove (h was none)")
+    
+    # Run generate_with_steering on a background thread; the streamer yields chunks here.
+    thread = threading.Thread(target=generate_with_steering_method, kwargs=generation_kwargs)
     thread.start()
-    print(f"🎯 Generation thread started for streaming steering")
+    print("generation thread started for streaming steering")
 
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
@@ -587,8 +581,6 @@ def stream_generate_steer(
 
     try:
         for new_text in streamer:
-            # Debug: Print raw model output before filtering
-            print(f"🔍 DEBUG stream_generate_steer raw output: '{new_text}'")
 
             buffer = new_text  # buffer only one token at a time
 
@@ -602,20 +594,15 @@ def stream_generate_steer(
             if has_control_tok:
                 continue
 
-            # Debug: Print buffer state
-            print(f"🔍 DEBUG stream_generate_steer buffer: '{buffer}'")
 
             # Handle skip mode - skip all tokens until we find target_speaker token
             if skip_mode:
-                print(f"skip mode - buffer: '{buffer}'")
                 if f"[{target_speaker}]" in buffer or f"[{target_speaker[:1]}]" in buffer:
                     # Found target speaker token, exit skip mode
-                    print(f"exiting skip mode - found target speaker token")
                     skip_mode = False
                     yield "\n"
                     continue
                 else:  # skip this token
-                    print(f"skipping token: '{buffer}'")
                     continue
 
             # Check for stop tokens that should end generation
@@ -633,24 +620,19 @@ def stream_generate_steer(
             pattern_found = False
             for pattern in patterns:
                 if pattern in buffer:
-                    print(f"🔍 FOUND PATTERN: '{pattern}' in buffer '{buffer}'")
                     pattern_found = True
                     if num_toks == 0 and pattern in [
                             f"[{target_speaker}]", f"[{target_speaker[:1]}"
                     ]:
-                        # print("top",buffer)
                         break
                     # If it's target speaker token, yield newline instead of the token
                     elif pattern in [
                             f"[{target_speaker}]", f"[{target_speaker[:1]}"
                     ]:
-                        # print("middle",buffer)
                         yield f"[{target_speaker}]\n"
                         break
                     # not great but better than the other option... to have no output
                     elif num_toks == 0:  # skip the stop token if no riya messages yet
-                        # print("bottom",buffer)
-                        # print(f"entering skip mode - found non-target speaker token: '{pattern}'")
                         skip_mode = True
                         break
                     else:
@@ -661,24 +643,18 @@ def stream_generate_steer(
                 continue
 
             # If no stop pattern found, yield the cleaned text and clear buffer
-            # print("generating output 1")
             if buffer.strip():
-                # print(f"🔍 YIELDING TEXT: '{buffer}'")
                 yield buffer
                 num_toks += 1
 
     except Exception as e:
-        print(f"Error in stream_generate_steer: {e}")
+        print(f"error in stream_generate_steer: {e}")
         torch.cuda.empty_cache()
         yield f"[Error: {str(e)}]"
 
     finally:
-        # Always remove the hook when done
-        if h is not None:
-            print(f"🎯 Removing steering hook")
-            h.remove()
-        else:
-            print(f"🎯 No hook to remove (h was None)")
+        # Hook cleanup is now handled inside generate_with_steering_method
+        pass
 
 
 @torch.no_grad()
@@ -829,25 +805,25 @@ def generate_with_steering(
         # add vector to each token's activation but vector is [1, 1, hidden_size]
         hidden_states = output[0]
 
-        print(f"Hook called: hidden_states.shape={hidden_states.shape}")
+        print(f"debug hook called: hidden_states.shape={hidden_states.shape}")
         # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
         if hidden_states.shape[1] == 1:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
             print(
-                f"Generation step: steering_magnitude={steering_magnitude:.6f}, steering_max={steering_max:.6f}"
+                f"debug generation step: magnitude={steering_magnitude:.6f}, max={steering_max:.6f}"
             )
             hidden_states += steering_vector.to(hidden_states.device)
-            print(f"🎯 STEERING APPLIED SUCCESSFULLY (NON-STREAM)")
+            print("debug steering applied successfully (non-stream)")
             return (hidden_states, ) + output[1:]
         else:
-            print(f"Prompt step: skipping steering")
+            print("debug prompt step: skipping steering")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook
     steering_magnitude = steering_vector.abs().sum().item()
-    print(f"Steering vector magnitude: {steering_magnitude:.6f}")
+    print(f"debug steering vector magnitude: {steering_magnitude:.6f}")
 
     model_name = getattr(model.config, "_name_or_path", "")
     if "gemma-3-27b-it" in model_name.lower():

@@ -66,15 +66,16 @@ def get_adapter_candidates_from_config():
     # Extract adapter paths from config.js
     import re
     adapter_matches = re.findall(r"value:\s*['\"]([^'\"]+)['\"]", content)
-    
+
     print(f"🔍 DEBUG: Config file content preview: {content[:500]}...")
     print(f"🔍 DEBUG: Adapter matches found: {adapter_matches}")
 
     if adapter_matches:
-        full_paths = [PROJECT_ROOT / "models" / path for path in adapter_matches]
+        full_paths = [
+            PROJECT_ROOT / "models" / path for path in adapter_matches
+        ]
         print(f"🔍 DEBUG: Full adapter paths: {[str(p) for p in full_paths]}")
         return full_paths
-
 
 # Get adapter candidates from config.js
 DEFAULT_ADAPTER_CANDIDATES = get_adapter_candidates_from_config()
@@ -245,6 +246,7 @@ class ChatSession:
 
 
 class ModelManager:
+
     def __init__(self) -> None:
         self.base_model_id: str = None
         self.adapter_path: Optional[Path] = None
@@ -281,7 +283,7 @@ class ModelManager:
 
     def start(self, adapter_path: Optional[str] = None) -> Dict[str, str]:
         global chat_log_file
-        
+
         # If adapter path is provided and different from current, or no model is loaded
         if adapter_path:
             new_adapter_path = PROJECT_ROOT / "models" / adapter_path
@@ -346,11 +348,11 @@ class ModelManager:
 
         # For large models like Gemma-27B, use quantization and single-GPU
         quantization_config = bnb_config
-        
+
         if "27b" in self.base_model_id.lower():
-          device_map = "cuda:0"
+            device_map = "cuda:0"
         else:
-          device_map = DEVICE_MAP
+            device_map = DEVICE_MAP
 
         print(f"🔧 Loading base model with device_map: {device_map}")
 
@@ -360,7 +362,8 @@ class ModelManager:
             base, _ = FastLanguageModel.from_pretrained(
                 model_name=self.base_model_id,
                 max_seq_length=4096,
-                dtype=torch.bfloat16,  # Use consistent dtype from environment/config
+                dtype=torch.
+                bfloat16,  # Use consistent dtype from environment/config
                 load_in_4bit=True if quantization_config else False,
                 load_in_8bit=False,
             )
@@ -381,7 +384,8 @@ class ModelManager:
         # Load LoRA adapter
         self.model = PeftModel.from_pretrained(base, str(self.adapter_path))
         self.model.eval()
-        self.model = self.model.to(torch.bfloat16)  # This was causing performance issues!
+        self.model = self.model.to(
+            torch.bfloat16)  # This was causing performance issues!
 
         # Warm up the model to load checkpoint shards and avoid slow first inference
         print("🔥 Warming up model to preload checkpoint shards...")
@@ -405,14 +409,13 @@ class ModelManager:
                 _ = self.model(dummy_input)
                 warmup_success = True
                 print(
-                  "Model warmed up successfully - checkpoint shards loaded"
-                )
+                    "Model warmed up successfully - checkpoint shards loaded")
         except Exception as e:
             print(f" Model warmup failed: {e}")
             print(f" Error details: {type(e).__name__}: {str(e)}")
 
         self.loaded = True
-        
+
         # Initialize chat log file when model starts
         if chat_log_file is None:
             log_dir = PROJECT_ROOT / "convos" / "public_logs"
@@ -420,14 +423,15 @@ class ModelManager:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             log_filename = log_dir / f"chat_session_{timestamp}.log"
             chat_log_file = open(log_filename, 'w', encoding='utf-8')
-            chat_log_file.write(f"Chat session started at {datetime.now().isoformat()}\n")
+            chat_log_file.write(
+                f"Chat session started at {datetime.now().isoformat()}\n")
             chat_log_file.write(f"Model: {self.base_model_id}\n")
             chat_log_file.write(f"Adapter: {self.adapter_path}\n")
             chat_log_file.write(f"Model type: {self.model_type}\n")
             chat_log_file.write("=" * 80 + "\n\n")
             chat_log_file.flush()
             print(f"📝 Chat log started: {log_filename}")
-        
+
         return {
             "status": "started",
             "base": self.base_model_id,
@@ -438,14 +442,15 @@ class ModelManager:
 
     def stop(self) -> Dict[str, str]:
         global chat_log_file
-        
+
         for s in sessions.values():
             s.transcript.clear()
 
         # Close chat log file when model is stopped
         if chat_log_file is not None:
             try:
-                chat_log_file.write(f"\nChat session ended at {datetime.now().isoformat()}\n")
+                chat_log_file.write(
+                    f"\nChat session ended at {datetime.now().isoformat()}\n")
                 chat_log_file.close()
                 print(f"📝 Chat log closed")
             except Exception as e:
@@ -501,45 +506,49 @@ def health():
     """Health check with explicit JSON headers"""
     from fastapi import Response
     import json
-    
+
     try:
         # Start with a basic response that always works
         response_data = {"ok": "true", "loaded": "False", "server": "running"}
-        
+
         try:
             if hasattr(model_manager, 'loaded'):
                 response_data["loaded"] = str(model_manager.loaded)
-                
+
                 if model_manager.loaded:
                     # Safely add model info
                     if hasattr(model_manager, 'model_type'):
-                        response_data["model_type"] = str(model_manager.model_type)
+                        response_data["model_type"] = str(
+                            model_manager.model_type)
                     if hasattr(model_manager, 'model_key'):
-                        response_data["model_key"] = str(model_manager.model_key)
+                        response_data["model_key"] = str(
+                            model_manager.model_key)
                     if hasattr(model_manager, 'base_model_id'):
-                        response_data["base_model"] = str(model_manager.base_model_id)
-                    if hasattr(model_manager, 'adapter_path') and model_manager.adapter_path:
-                        response_data["adapter"] = str(model_manager.adapter_path)
+                        response_data["base_model"] = str(
+                            model_manager.base_model_id)
+                    if hasattr(model_manager,
+                               'adapter_path') and model_manager.adapter_path:
+                        response_data["adapter"] = str(
+                            model_manager.adapter_path)
         except Exception as model_error:
             response_data["model_error"] = str(model_error)
-            
+
         # Create response with explicit headers
-        response = Response(
-            content=json.dumps(response_data),
-            media_type="application/json",
-            headers={"Content-Type": "application/json"}
-        )
+        response = Response(content=json.dumps(response_data),
+                            media_type="application/json",
+                            headers={"Content-Type": "application/json"})
         return response
     except Exception as e:
         # This should never happen, but just in case
-        error_response = {"ok": "true", "loaded": "False", "error": "health_check_failed", "message": str(e)}
-        return Response(
-            content=json.dumps(error_response),
-            media_type="application/json",
-            headers={"Content-Type": "application/json"}
-        )
-
-
+        error_response = {
+            "ok": "true",
+            "loaded": "False",
+            "error": "health_check_failed",
+            "message": str(e)
+        }
+        return Response(content=json.dumps(error_response),
+                        media_type="application/json",
+                        headers={"Content-Type": "application/json"})
 
 
 @app.post("/start")
@@ -590,32 +599,38 @@ def clear_history(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     """Clear chat history for a specific bot."""
     bot = payload.get("bot")
     if bot not in sessions:
-        raise HTTPException(status_code=400, detail="Invalid bot. Use 'riya' or 'owen'.")
-    
+        raise HTTPException(status_code=400,
+                            detail="Invalid bot. Use 'riya' or 'owen'.")
+
     # Clear the session history
     sessions[bot].history.clear()
     sessions[bot].turns = 0
     sessions[bot].transcript.clear()
-    
+
     print(f"🧹 Cleared history for {bot} bot")
     return {"status": "success", "message": f"History cleared for {bot} bot"}
 
 
 @app.post("/generate-steering-vector")
-def generate_steering_vector_endpoint(payload: Dict, origin: str = Depends(verify_origin),) -> Dict:
+def generate_steering_vector_endpoint(
+        payload: Dict,
+        origin: str = Depends(verify_origin),
+) -> Dict:
     """Generate and store a steering vector based on contrast pairs."""
-    print(f"🎯 /generate-steering-vector endpoint called with payload: {payload}")
-    
+    print(
+        f"🎯 /generate-steering-vector endpoint called with payload: {payload}")
+
     # Ensure model is loaded
     model_manager.ensure_loaded()
-    
+
     pairs = payload.get("pairs", [])
     extract_layer = payload.get("extract_layer", -2)
     alpha = payload.get("alpha", 2.0)
-    
+
     if not pairs:
-        raise HTTPException(status_code=400, detail="No contrast pairs provided")
-    
+        raise HTTPException(status_code=400,
+                            detail="No contrast pairs provided")
+
     # Convert pairs to steer_dict format
     steer_dict = {}
     for pair in pairs:
@@ -625,17 +640,18 @@ def generate_steering_vector_endpoint(payload: Dict, origin: str = Depends(verif
             steer_dict[positive] = 0.25  # Positive weight
         if negative:
             steer_dict[negative] = -0.25  # Negative weight
-    
+
     if not steer_dict:
-        raise HTTPException(status_code=400, detail="No valid contrast pairs found")
-    
+        raise HTTPException(status_code=400,
+                            detail="No valid contrast pairs found")
+
     print(f"🎯 Generating steering vector with {len(steer_dict)} prompts")
     print(f"🎯 Steer dict: {steer_dict}")
-    
+
     try:
         # Detect model type
         is_instruct = detect_model_type(model_manager.model_key) == "instruct"
-        
+
         # Generate steering vector
         steering_vector = generate_steering_vector(
             model_manager.model,
@@ -648,7 +664,7 @@ def generate_steering_vector_endpoint(payload: Dict, origin: str = Depends(verif
             is_instruct=is_instruct,
             current_speaker=RIYA_NAME  # Default to Riya for now
         )
-        
+
         # Debug: Check steering vector values
         vector_magnitude = steering_vector.abs().sum().item()
         vector_max = steering_vector.abs().max().item()
@@ -657,29 +673,31 @@ def generate_steering_vector_endpoint(payload: Dict, origin: str = Depends(verif
         print(f"  Magnitude: {vector_magnitude:.6f}")
         print(f"  Max value: {vector_max:.6f}")
         print(f"  Alpha used: {alpha}")
-        
+
         # Store the steering vector in the model manager for later use
         model_manager.steering_vector = steering_vector
         model_manager.steering_enabled = True
-        
+
         print(f"✅ Steering vector generated successfully")
-        
+
         return {
             "status": "success",
             "message": "Steering vector generated successfully",
             "vector_shape": list(steering_vector.shape),
             "pairs_count": len(steer_dict)
         }
-        
+
     except Exception as e:
         print(f"❌ Error generating steering vector: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate steering vector: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate steering vector: {str(e)}")
 
 
 @app.post("/chat")
 def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     global chat_log_file
-    
+
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
@@ -692,14 +710,14 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
 
     # Ensure model is loaded
     model_manager.ensure_loaded()
-    
+
     # Log the user message and steering config if enabled
     if chat_log_file is not None:
         try:
             timestamp = datetime.now().isoformat()
             user_name = OWEN_NAME if bot == "riya" else RIYA_NAME
             chat_log_file.write(f"[{timestamp}] {user_name}: {message}\n")
-            
+
             # Log steering configuration if enabled
             use_steering = bool(steering.get("enabled"))
             if use_steering:
@@ -707,24 +725,31 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
                 extract_layer = steering.get("extract_layer", -2)
                 apply_layer = steering.get("apply_layer", -1)
                 alpha_strength = steering.get("alpha", 2.0)
-                
+
                 chat_log_file.write(f"[{timestamp}] STEERING CONFIG:\n")
-                chat_log_file.write(f"[{timestamp}]   Enabled: {use_steering}\n")
-                chat_log_file.write(f"[{timestamp}]   Extract Layer: {extract_layer}\n")
-                chat_log_file.write(f"[{timestamp}]   Apply Layer: {apply_layer}\n")
-                chat_log_file.write(f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
-                
+                chat_log_file.write(
+                    f"[{timestamp}]   Enabled: {use_steering}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Extract Layer: {extract_layer}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Apply Layer: {apply_layer}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
+
                 if steering_pairs:
                     chat_log_file.write(f"[{timestamp}]   Contrast Pairs:\n")
                     for i, pair in enumerate(steering_pairs):
                         pos = pair.get("positive", "").strip()
                         neg = pair.get("negative", "").strip()
                         if pos and neg:
-                            chat_log_file.write(f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n")
+                            chat_log_file.write(
+                                f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n"
+                            )
                 else:
-                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs: None\n")
+                    chat_log_file.write(
+                        f"[{timestamp}]   Contrast Pairs: None\n")
                 chat_log_file.write(f"[{timestamp}] END STEERING CONFIG\n")
-            
+
             chat_log_file.flush()
         except Exception as e:
             print(f"⚠️  Error writing to chat log: {e}")
@@ -788,7 +813,9 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
     else:
         # No steering enabled or no steering vector available, use regular generation
         if use_steering and not model_manager.steering_enabled:
-            print("⚠️  Steering enabled but no steering vector available. Please generate one first.")
+            print(
+                "⚠️  Steering enabled but no steering vector available. Please generate one first."
+            )
         raw = generate(model_manager.model,
                        full_prompt,
                        model_manager.tokenizer,
@@ -816,7 +843,8 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
         if chat_log_file is not None:
             try:
                 timestamp = datetime.now().isoformat()
-                chat_log_file.write(f"[{timestamp}] {assistant_name}: {text}\n")
+                chat_log_file.write(
+                    f"[{timestamp}] {assistant_name}: {text}\n")
                 chat_log_file.flush()
             except Exception as e:
                 print(f"⚠️  Error writing bot response to chat log: {e}")
@@ -834,7 +862,7 @@ def chat(payload: Dict, origin: str = Depends(verify_origin)) -> Dict:
 def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
     """Stream chat responses for real-time output"""
     global chat_log_file
-    
+
     bot = payload.get("bot")
     message = payload.get("message", "").strip()
     steering = payload.get("steering", {}) or {}
@@ -847,14 +875,14 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
 
     # Ensure model is loaded
     model_manager.ensure_loaded()
-    
+
     # Log the user message and steering config if enabled
     if chat_log_file is not None:
         try:
             timestamp = datetime.now().isoformat()
             user_name = OWEN_NAME if bot == "riya" else RIYA_NAME
             chat_log_file.write(f"[{timestamp}] {user_name}: {message}\n")
-            
+
             # Log steering configuration if enabled
             use_steering = bool(steering.get("enabled"))
             if use_steering:
@@ -862,24 +890,31 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
                 extract_layer = steering.get("extract_layer", -2)
                 apply_layer = steering.get("apply_layer", -1)
                 alpha_strength = steering.get("alpha", 2.0)
-                
+
                 chat_log_file.write(f"[{timestamp}] STEERING CONFIG:\n")
-                chat_log_file.write(f"[{timestamp}]   Enabled: {use_steering}\n")
-                chat_log_file.write(f"[{timestamp}]   Extract Layer: {extract_layer}\n")
-                chat_log_file.write(f"[{timestamp}]   Apply Layer: {apply_layer}\n")
-                chat_log_file.write(f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
-                
+                chat_log_file.write(
+                    f"[{timestamp}]   Enabled: {use_steering}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Extract Layer: {extract_layer}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Apply Layer: {apply_layer}\n")
+                chat_log_file.write(
+                    f"[{timestamp}]   Alpha Strength: {alpha_strength}\n")
+
                 if steering_pairs:
                     chat_log_file.write(f"[{timestamp}]   Contrast Pairs:\n")
                     for i, pair in enumerate(steering_pairs):
                         pos = pair.get("positive", "").strip()
                         neg = pair.get("negative", "").strip()
                         if pos and neg:
-                            chat_log_file.write(f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n")
+                            chat_log_file.write(
+                                f"[{timestamp}]     {i+1}. Positive: '{pos}' | Negative: '{neg}'\n"
+                            )
                 else:
-                    chat_log_file.write(f"[{timestamp}]   Contrast Pairs: None\n")
+                    chat_log_file.write(
+                        f"[{timestamp}]   Contrast Pairs: None\n")
                 chat_log_file.write(f"[{timestamp}] END STEERING CONFIG\n")
-            
+
             chat_log_file.flush()
         except Exception as e:
             print(f"⚠️  Error writing to chat log: {e}")
@@ -930,75 +965,77 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
     def generate_stream():
         """Generator function for streaming responses"""
         full_response = ""
-        
+
         try:
             if use_steering and model_manager.steering_enabled and model_manager.steering_vector is not None:
                 # Use the pre-generated steering vector with streaming
-                print(f"🎯 Using stored steering vector for streaming generation")
+                print(
+                    f"🎯 Using stored steering vector for streaming generation")
                 for token in stream_generate_steer(
-                    model_manager.model,
-                    full_prompt,
-                    model_manager.tokenizer,
-                    model_manager.steering_vector,
-                    max_new_tokens=max_new,
-                    layer_from_last=apply_layer,
-                    processor=model_manager.processor,
-                    is_instruct=is_instruct,
-                    target_speaker=target_speaker,
-                    deployment=True
-                ):
+                        model_manager.model,
+                        full_prompt,
+                        model_manager.tokenizer,
+                        model_manager.steering_vector,
+                        max_new_tokens=max_new,
+                        layer_from_last=apply_layer,
+                        processor=model_manager.processor,
+                        is_instruct=is_instruct,
+                        target_speaker=target_speaker,
+                        deployment=True):
                     full_response += token
                     yield f"data: {token}\n\n"
             else:
                 # No steering enabled or no steering vector available, use regular streaming generation
                 if use_steering and not model_manager.steering_enabled:
-                    print("⚠️  Steering enabled but no steering vector available. Please generate one first.")
-                
-                for token in stream_generate(
-                    model_manager.model,
-                    full_prompt,
-                    model_manager.tokenizer,
-                    max_new_tokens=max_new,
-                    processor=model_manager.processor,
-                    is_instruct=is_instruct,
-                    target_speaker=target_speaker,
-                    deployment=True
-                ):
+                    print(
+                        "⚠️  Steering enabled but no steering vector available. Please generate one first."
+                    )
+
+                for token in stream_generate(model_manager.model,
+                                             full_prompt,
+                                             model_manager.tokenizer,
+                                             max_new_tokens=max_new,
+                                             processor=model_manager.processor,
+                                             is_instruct=is_instruct,
+                                             target_speaker=target_speaker,
+                                             deployment=True):
                     full_response += token
                     yield f"data: {token}\n\n"
-            
+
             # Add to history and transcript after streaming is complete
             text = clean_for_sampling(full_response)
             session.history.append(f"\n[{assistant_name}] {text}")
             session.turns += 1
-            session.transcript.append({"role": assistant_name, "content": text})
+            session.transcript.append({
+                "role": assistant_name,
+                "content": text
+            })
 
             # Log the bot response
             if chat_log_file is not None:
                 try:
                     timestamp = datetime.now().isoformat()
-                    chat_log_file.write(f"[{timestamp}] {assistant_name}: {text}\n")
+                    chat_log_file.write(
+                        f"[{timestamp}] {assistant_name}: {text}\n")
                     chat_log_file.flush()
                 except Exception as e:
                     print(f"⚠️  Error writing bot response to chat log: {e}")
-            
+
             # Send completion signal
             yield f"data: [DONE]\n\n"
-            
+
         except Exception as e:
             print(f"❌ Error in streaming generation: {e}")
             yield f"data: [ERROR] {str(e)}\n\n"
 
-    return StreamingResponse(
-        generate_stream(),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+    return StreamingResponse(generate_stream(),
+                             media_type="text/plain",
+                             headers={
+                                 "Cache-Control": "no-cache",
+                                 "Connection": "keep-alive",
+                                 "Access-Control-Allow-Origin": "*",
+                                 "Access-Control-Allow-Headers": "*",
+                             })
 
 
 @app.get("/")

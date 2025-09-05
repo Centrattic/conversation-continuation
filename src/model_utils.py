@@ -424,7 +424,6 @@ def stream_generate(
         "pad_token_id": tokenizer.eos_token_id,
         "use_cache": True,
         "streamer": streamer,
-        "cache_implementation": "static",
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -561,7 +560,6 @@ def stream_generate_steer(
         "pad_token_id": tokenizer.eos_token_id,
         "use_cache": True,
         "streamer": streamer,
-        "cache_implementation": "static",
     }
 
     # Run generate on a background thread; the streamer yields chunks here.
@@ -708,8 +706,7 @@ def generate_with_activations(
         top_p=0.95,
         top_k=0,
         pad_token_id=tokenizer.eos_token_id,
-        cache_implementation=
-        "static",  # Use static cache instead of deprecated hybrid
+        cache_implementation="static",
     )
 
     # remove hook

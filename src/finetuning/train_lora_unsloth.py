@@ -17,9 +17,8 @@ import io
 import requests
 
 # Local imports
-from src.model_utils import (get_model_config,
-                            create_experiment_folder, save_experiment_config,
-                            load_image)
+from src.model_utils import (get_model_config, create_experiment_folder,
+                             save_experiment_config, load_image)
 from src.config import FRIEND_NAME, RIYA_NAME, DATA_PATH, bnb_config
 from src.data_utils import get_speaker_tokens
 from src.finetuning.callbacks import SampleGenerationCallback, LiveJSONLogger

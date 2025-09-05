@@ -34,19 +34,34 @@ def remove_end_of_turn_token(model_inputs, input_length, tokenizer):
             as_tuple=True)[0]
         if len(end_of_turn_positions) > 0:
             last_end_of_turn_pos = end_of_turn_positions[-1].item()
-            # Remove the <end_of_turn> token
-            new_input_ids = torch.cat([
-                input_ids[:last_end_of_turn_pos],
-                input_ids[last_end_of_turn_pos + 1:]
-            ])
+            # Remove the <end_of_turn> token with proper bounds checking
+            if last_end_of_turn_pos == 0:
+                # Token is at the beginning
+                new_input_ids = input_ids[1:]
+            elif last_end_of_turn_pos == len(input_ids) - 1:
+                # Token is at the end
+                new_input_ids = input_ids[:-1]
+            else:
+                # Token is in the middle
+                new_input_ids = torch.cat([
+                    input_ids[:last_end_of_turn_pos],
+                    input_ids[last_end_of_turn_pos + 1:]
+                ])
+            
             model_inputs["input_ids"] = new_input_ids.unsqueeze(0)
 
             # Update attention mask to match the new length
-            new_attention_mask = model_inputs["attention_mask"][0]
-            new_attention_mask = torch.cat([
-                new_attention_mask[:last_end_of_turn_pos],
-                new_attention_mask[last_end_of_turn_pos + 1:]
-            ])
+            attention_mask = model_inputs["attention_mask"][0]
+            if last_end_of_turn_pos == 0:
+                new_attention_mask = attention_mask[1:]
+            elif last_end_of_turn_pos == len(attention_mask) - 1:
+                new_attention_mask = attention_mask[:-1]
+            else:
+                new_attention_mask = torch.cat([
+                    attention_mask[:last_end_of_turn_pos],
+                    attention_mask[last_end_of_turn_pos + 1:]
+                ])
+            
             model_inputs["attention_mask"] = new_attention_mask.unsqueeze(0)
 
             # Update input_length
@@ -432,8 +447,9 @@ def stream_generate(
     # Buffer to accumulate text and check for stop tokens
     buffer = ""
     
-    for new_text in streamer:
-        buffer += new_text
+    try:
+        for new_text in streamer:
+            buffer += new_text
         
         # Clean up control tokens from the buffer
         cleaned_buffer = buffer
@@ -469,6 +485,11 @@ def stream_generate(
         if cleaned_buffer.strip():
             yield cleaned_buffer
         buffer = ""
+    
+    except Exception as e:
+        print(f"Error in stream_generate: {e}")
+        torch.cuda.empty_cache()
+        yield f"[Error: {str(e)}]"
 
 
 @torch.no_grad()
@@ -606,6 +627,11 @@ def stream_generate_steer(
             if cleaned_buffer.strip():
                 yield cleaned_buffer
             buffer = ""
+    
+    except Exception as e:
+        print(f"Error in stream_generate_steer: {e}")
+        torch.cuda.empty_cache()
+        yield f"[Error: {str(e)}]"
     
     finally:
         # Always remove the hook when done

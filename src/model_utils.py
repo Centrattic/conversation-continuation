@@ -478,7 +478,9 @@ def stream_generate(
                     stop_pos = cleaned_buffer.find(pattern)
                     
                     # don't stop for target_speaker token early in generation
-                    if stop_pos == 0 and pattern == f"[{target_speaker}]":
+                    if stop_pos == 0 and pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
+                        # Remove the token from buffer
+                        buffer = buffer[len(pattern):]
                         continue
                     
                     # Yield everything before the stop pattern
@@ -631,7 +633,9 @@ def stream_generate_steer(
                     stop_pos = cleaned_buffer.find(pattern)
                     
                     # don't stop for target_speaker token early in generation
-                    if stop_pos == 0 and pattern == f"[{target_speaker}]":
+                    if stop_pos == 0 and pattern in [f"[{target_speaker}]", f"[{target_speaker[:1]}]"]:
+                        # Remove the token from buffer
+                        buffer = buffer[len(pattern):]
                         continue
                     
                     # Yield everything before the stop pattern

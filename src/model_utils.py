@@ -507,22 +507,38 @@ def stream_generate_steer(
 
     # Steering hook function
     def add_vector_hook(module, input, output):
-        # output shape: [batch_size, seq_len, hidden_size]
-        # add vector to each token's activation but vector is [1, 1, hidden_size]
-        hidden_states = output[0]
+        # output may be a Tensor or a tuple whose first element is hidden states
+        if isinstance(output, tuple):
+            hidden_states = output[0]
+            rest = output[1:]
+        else:
+            hidden_states = output
+            rest = None
 
         print(f"debug steering hook called: hidden_states.shape={hidden_states.shape}")
-        # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
-        if hidden_states.shape[1] == 1:
-            # Check if steering vector is actually non-zero
+
+        # Determine generation step
+        if hidden_states.dim() == 3:
+            is_gen_step = (hidden_states.shape[1] == 1)
+        elif hidden_states.dim() == 2:
+            is_gen_step = (hidden_states.shape[0] == 1)
+        else:
+            is_gen_step = False
+
+        if is_gen_step:
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
             print(f"debug applying steering: magnitude={steering_magnitude:.6f}, max={steering_max:.6f}")
-            hidden_states += steering_vector.to(hidden_states.device)
+            if hidden_states.dim() == 3:
+                hidden_states = hidden_states + steering_vector.to(hidden_states.device)
+            else:  # 2D [B, H]
+                steer_2d = steering_vector.view(1, -1).to(hidden_states.device)
+                hidden_states = hidden_states + steer_2d
             print("debug steering applied successfully")
-            return (hidden_states, ) + output[1:]
+            return (hidden_states, ) + rest if rest is not None else hidden_states
         else:
-            print(f"debug prompt step: skipping steering (seq_len={hidden_states.shape[1]})")
+            seq_info = hidden_states.shape[1] if hidden_states.dim() == 3 else '2D'
+            print(f"debug prompt step: skipping steering (seq_len={seq_info})")
             return output  # leave prompt pass untouched
 
     # Check if steering vector is actually non-zero before registering hook
@@ -801,22 +817,41 @@ def generate_with_steering(
         stop_tokens = None
 
     def add_vector_hook(module, input, output):  # what does input do here
-        # output shape: [batch_size, seq_len, hidden_size]
-        # add vector to each token's activation but vector is [1, 1, hidden_size]
-        hidden_states = output[0]
+        # output may be a Tensor or a tuple whose first element is hidden states
+        if isinstance(output, tuple):
+            hidden_states = output[0]
+            rest = output[1:]
+        else:
+            hidden_states = output
+            rest = None
 
         print(f"debug hook called: hidden_states.shape={hidden_states.shape}")
-        # only steer when seq_len == 1 (i.e. a generation step, not at prompt embedding step)
-        if hidden_states.shape[1] == 1:
+
+        # Determine if this is a generation step
+        if hidden_states.dim() == 3:
+            is_gen_step = (hidden_states.shape[1] == 1)
+        elif hidden_states.dim() == 2:
+            # Some implementations squeeze the time dimension when T==1
+            is_gen_step = (hidden_states.shape[0] == 1)
+        else:
+            is_gen_step = False
+
+        if is_gen_step:
             # Check if steering vector is actually non-zero
             steering_magnitude = steering_vector.abs().sum().item()
             steering_max = steering_vector.abs().max().item()
             print(
                 f"debug generation step: magnitude={steering_magnitude:.6f}, max={steering_max:.6f}"
             )
-            hidden_states += steering_vector.to(hidden_states.device)
+            if hidden_states.dim() == 3:
+                # [B, 1, H] + [1, 1, H]
+                hidden_states = hidden_states + steering_vector.to(hidden_states.device)
+            else:  # 2D [B, H]
+                # Squeeze steering vector to [1, H]
+                steer_2d = steering_vector.view(1, -1).to(hidden_states.device)
+                hidden_states = hidden_states + steer_2d
             print("debug steering applied successfully (non-stream)")
-            return (hidden_states, ) + output[1:]
+            return (hidden_states, ) + rest if rest is not None else hidden_states
         else:
             print("debug prompt step: skipping steering")
             return output  # leave prompt pass untouched

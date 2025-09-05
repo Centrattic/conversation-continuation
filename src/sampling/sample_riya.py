@@ -1,5 +1,8 @@
 # This file will enable continuous sampling to talk to Friend only, filtering out [RIYA] tags
 
+import unsloth
+from unsloth import FastLanguageModel
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoProcessor
 from peft import PeftModel
@@ -9,8 +12,6 @@ from tqdm import tqdm
 from pathlib import Path
 from transformers import BitsAndBytesConfig
 import json
-import unsloth
-from unsloth import FastLanguageModel
 import argparse
 
 from src.config import RIYA_NAME, FRIEND_NAME, MODEL_CONFIGS, RIYA_SPEAKER_TOKEN, FRIEND_SPEAKER_TOKEN, bnb_config
@@ -25,10 +26,10 @@ args = parser.parse_args()
 steer = args.steer
 stream = args.stream
 
-checkpoint_path = Path(
+checkpoint_path_old = Path(
     "models/gemma-3-27b-it/gemma-3-27b-it_20250903_122252/training_output/checkpoint-276"
 )
-checkpoint_path_old = Path(
+checkpoint_path = Path(
     "models/mistral-7b/mistral-results-7-6-25/checkpoint-8103")
 max_new_tokens = 50
 
@@ -37,7 +38,10 @@ adapter_config_path = checkpoint_path / "adapter_config.json"
 with open(adapter_config_path, 'r') as f:
     adapter_config = json.load(f)
 base_model_name = adapter_config["base_model_name_or_path"]
-model_type = "instruct"  # Gemma models are instruct-tuned
+if "-it" in base_model_name.lower():
+    model_type = "instruct"
+else:
+    model_type = "base"
 
 print(f"Loading {model_type} model: {base_model_name}")
 print(f"Using checkpoint: {checkpoint_path}")

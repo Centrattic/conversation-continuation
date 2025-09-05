@@ -88,7 +88,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:9100",  # For local development
 ]
 
-MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "80"))
+MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "50"))
 DEVICE_MAP = os.environ.get("DEVICE_MAP", "auto")
 DTYPE = os.environ.get("DTYPE", "bfloat16")  # float16, bfloat16, float32
 

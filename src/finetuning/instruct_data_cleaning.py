@@ -152,7 +152,7 @@ def create_instruct_example(conversation_history: str,
             conversation_history=conversation_history,
             next_speaker=next_speaker)
 
-    # The response should use the proper speaker format: [Owen] {message}
+    # The response should use the proper speaker format: [FRIEND] {message}
     if next_speaker == RIYA_NAME:
         response = f"{RIYA_SPEAKER_TOKEN} {response_content}"
     else:
@@ -191,7 +191,7 @@ def create_instruct_example_with_multiple_responses(
 
     # Combine all response messages
     if ask_generic_next:
-        # response_messages is a list of {"speaker": "[Riya]/[Owen]", "content": str}
+        # response_messages is a list of {"speaker": "[Riya]/[FRIEND]", "content": str}
         combined_parts = []
         for msg in response_messages:
             speaker_tag = msg["speaker"]

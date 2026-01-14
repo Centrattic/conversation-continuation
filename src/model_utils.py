@@ -333,7 +333,7 @@ def stream_generate(
 ) -> Iterator[str]:
     """Stream text generation with proper stop token handling.
     
-    - Stops when it encounters stop tokens like [Owen], [O, etc.
+    - Stops when it encounters stop tokens like [FRIEND], [F, etc.
     - When it encounters [Riya] tokens, moves to new line instead of outputting
     - Yields text chunks as they are generated
     """
@@ -412,8 +412,8 @@ def stream_generate(
 
             # Check for stop tokens that should end generation
             patterns = [
-                f"[{FRIEND_NAME}]",  # [Owen]
-                f"[{FRIEND_NAME[:1]}",  # [O]
+                f"[{FRIEND_NAME}]",  # [FRIEND]
+                f"[{FRIEND_NAME[:1]}",  # [F]
                 f"[{RIYA_NAME}]",  # [Riya] - should move to new line
                 f"[{RIYA_NAME[:1]}",  # [R - should move to new line
                 "<eot>",
@@ -478,7 +478,7 @@ def stream_generate_steer(
     
     - Uses generate_with_steering in a background thread for proper steering
     - Uses TextIteratorStreamer for real streaming
-    - Stops when it encounters stop tokens like [Owen], [O, etc.
+    - Stops when it encounters stop tokens like [FRIEND], [F, etc.
     - When it encounters [Riya] tokens, moves to new line instead of outputting
     - Yields text chunks as they are generated
     """
@@ -623,8 +623,8 @@ def stream_generate_steer(
 
             # Check for stop tokens that should end generation
             patterns = [
-                f"[{FRIEND_NAME}]",  # [Owen]
-                f"[{FRIEND_NAME[:1]}",  # [O]
+                f"[{FRIEND_NAME}]",  # [FRIEND]
+                f"[{FRIEND_NAME[:1]}",  # [F]
                 f"[{RIYA_NAME}]",  # [Riya] - should move to new line
                 f"[{RIYA_NAME[:1]}",  # [R - should move to new line
                 "<eot>",

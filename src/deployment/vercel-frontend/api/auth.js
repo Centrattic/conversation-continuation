@@ -12,9 +12,9 @@ export default function handler(req, res) {
 
     // Check against environment variables
     const passRiya = process.env.PASS_RIYA;
-    const passOwen = process.env.PASS_OWEN;
+    const passFriend = process.env.PASS_FRIEND;
 
-    if (password === passRiya || password === passOwen) {
+    if (password === passRiya || password === passFriend) {
         return res.status(200).json({
             ok: true,
             message: 'Access granted'

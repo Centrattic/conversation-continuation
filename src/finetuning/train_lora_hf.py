@@ -80,7 +80,7 @@ if args.special_tokens:
     with torch.no_grad():
         mapping = {
             special_tokens[0]: ["ri", "ya", "_R"],
-            special_tokens[1]: ["▁Owen"]  # that is NOT an _ it's the space
+            special_tokens[1]: ["▁FRIEND"]  # that is NOT an _ it's the space
         }
         for tok, refs in mapping.items():
             tid = tokenizer.convert_tokens_to_ids(tok)

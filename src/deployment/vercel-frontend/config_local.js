@@ -2,7 +2,7 @@ window.APP_CONFIG = {
     // Local development - points to your local FastAPI server
     apiBase: 'http://localhost:9100',
     riyaName: 'Riya',
-    owenName: 'Owen',
+    friendName: 'FRIEND',
     maxNewTokens: 50,
     // Adapter paths
     adapters: [

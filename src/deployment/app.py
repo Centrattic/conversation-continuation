@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Minimal web app (dark mode) to chat with two bots (Riya / Owen) using local sampling.
+Minimal web app (dark mode) to chat with two bots (Riya / FRIEND) using local sampling.
 - Left: Start/Stop (lazy load/unload model on GPU)
-- Right: Chat UI with tabs for Riya-bot and Owen-bot
+- Right: Chat UI with tabs for Riya-bot and FRIEND-bot
 - Optional steering: checkbox + positive prompt + negative prompts (comma-separated)
 
 This does NOT use vLLM. It uses HF + PEFT locally and the project's sampling utilities.
@@ -80,7 +80,7 @@ def get_adapter_candidates_from_config():
 # Get adapter candidates from config.js
 DEFAULT_ADAPTER_CANDIDATES = get_adapter_candidates_from_config()
 RIYA_NAME = os.environ.get("RIYA_NAME", "Riya")
-OWEN_NAME = os.environ.get("FRIEND_NAME", "Owen")
+FRIEND_NAME_ENV = os.environ.get("FRIEND_NAME", "FRIEND")
 
 # Security - Restrict to your Vercel domain
 ALLOWED_ORIGINS = [
@@ -1058,20 +1058,6 @@ def chat_stream(payload: Dict, origin: str = Depends(verify_origin)):
 
 
 @app.get("/")
-# def index() -> HTMLResponse:
-#     """Redirect to the Vercel frontend"""
-#     return HTMLResponse(content="""
-#     <!DOCTYPE html>
-#     <html>
-#     <head>
-#         <title>Conversation App</title>
-#         <meta http-equiv="refresh" content="0; url=https://conversation-continuation.vercel.app">
-#     </head>
-#     <body>
-#         <p>Redirecting to <a href="https://conversation-continuation.vercel.app">Vercel Frontend</a>...</p>
-#     </body>
-#     </html>
-#     """)
 def index() -> FileResponse:
     """Serve the local frontend for development"""
     frontend_path = PROJECT_ROOT / "src" / "deployment" / "vercel-frontend" / "index.html"

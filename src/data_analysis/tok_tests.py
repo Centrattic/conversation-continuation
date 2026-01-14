@@ -29,8 +29,8 @@ for i in range(len(data)):
 print(f"Total text token count: {tot}")
 
 test_tokenizer_vals = [
-    "rtyagi86", "kidnamedowen", "riya", "Owen", "Riya", "owen", '[Riya]',
-    '[Owen]', '[Riya]:', '[Owen]:', 'Riya:', 'Owen:'
+    "rtyagi86", "riya", "FRIEND", "Riya", "friend", '[Riya]',
+    '[FRIEND]', '[Riya]:', '[FRIEND]:', 'Riya:', 'FRIEND:'
 ]
 
 # friend name is single token woahhh, guess its pretty popular in proper nouns, prob bc he's white :p

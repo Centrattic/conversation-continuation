@@ -199,12 +199,12 @@ if args.special_tokens:
             }
             # mapping = {
             #     special_tokens[0]: ["▁Ria"],
-            #     special_tokens[1]: ["▁Owen", "Owen"]  # that is NOT an _ it's the space
+            #     special_tokens[1]: ["▁FRIEND", "FRIEND"]  # that is NOT an _ it's the space
             # }
         else:  # mistral, make this neater later
             mapping = {
                 special_tokens[0]: ["ri", "ya", "_R"],
-                special_tokens[1]: ["▁Owen"]  # that is NOT an _ it's the space
+                special_tokens[1]: ["▁FRIEND"]  # that is NOT an _ it's the space
             }
         for tok, refs in mapping.items():
             tid = tokenizer.convert_tokens_to_ids(tok)

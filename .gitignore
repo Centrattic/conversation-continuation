@@ -4,10 +4,15 @@
 *.zip
 test.py
 zip.py
-convos/*
+convos/
 mistral-results*/*
 src/rl/constitutions/*
-data/*
+data/
 *.png
 .env
 .log
+NOTES.md
+ngrok.log
+*.zip
+unsloth_compiled_cache/
+models/

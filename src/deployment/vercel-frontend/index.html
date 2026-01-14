@@ -164,7 +164,7 @@
             background-attachment: local;
         }
 
-        #log-owen {
+        #log-friend {
             background-image:
                 linear-gradient(rgba(11, 11, 15, 0.9), rgba(11, 11, 15, 0.9)),
                 url('./friend.jpg');
@@ -422,14 +422,14 @@
             <div>
                 <div class="tabs">
                     <div class="tab active" id="tab-riya"></div>
-                    <div class="tab" id="tab-owen"></div>
+                    <div class="tab" id="tab-friend"></div>
                     <button id="clearChat" class="danger"
                         style="margin-left: auto; padding: 6px 12px; font-size: 12px;">Clear chat</button>
                 </div>
             </div>
 
             <div id="log-riya" class="log custom-scrollbar"></div>
-            <div id="log-owen" class="log custom-scrollbar" style="display:none"></div>
+            <div id="log-friend" class="log custom-scrollbar" style="display:none"></div>
 
             <div>
                 <div class="row">
@@ -442,14 +442,14 @@
 
     <script src="/config.js"></script>
     <script>
-        const cfg = window.APP_CONFIG || { riyaName: 'Riya', owenName: 'Owen', maxNewTokens: 80, apiBase: '', adapters: [] };
+        const cfg = window.APP_CONFIG || { riyaName: 'Riya', friendName: 'FRIEND', maxNewTokens: 80, apiBase: '', adapters: [] };
         const API_BASE = cfg.apiBase || '';
         let bot = 'riya';
         const logRiya = document.getElementById('log-riya');
-        const logOwen = document.getElementById('log-owen');
+        const logFriend = document.getElementById('log-friend');
 
         document.getElementById('tab-riya').textContent = (cfg.riyaName || 'Riya') + '-bot';
-        document.getElementById('tab-owen').textContent = (cfg.owenName || 'Owen') + '-bot';
+        document.getElementById('tab-friend').textContent = (cfg.friendName || 'FRIEND') + '-bot';
 
         // Populate adapter dropdown from config
         const adapterSelect = document.getElementById('adapterSelect');
@@ -462,10 +462,10 @@
             });
         }
 
-        const msgs = { riya: [], owen: [] };
+        const msgs = { riya: [], friend: [] };
 
         function render() {
-            const target = bot === 'riya' ? logRiya : logOwen;
+            const target = bot === 'riya' ? logRiya : logFriend;
             target.innerHTML = '';
             for (const m of msgs[bot]) {
                 const d = document.createElement('div');
@@ -505,10 +505,10 @@
             target.scrollTop = target.scrollHeight;
         }
 
-        function currentLog() { return bot === 'riya' ? logRiya : logOwen; }
+        function currentLog() { return bot === 'riya' ? logRiya : logFriend; }
 
         function add(role, text) {
-            const name = role === 'me' ? 'You' : (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen'));
+            const name = role === 'me' ? 'You' : (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.friendName || 'FRIEND'));
             msgs[bot].push({ role, text, name });
             render();
         }
@@ -610,17 +610,17 @@
         document.getElementById('tab-riya').onclick = () => {
             bot = 'riya';
             document.getElementById('tab-riya').classList.add('active');
-            document.getElementById('tab-owen').classList.remove('active');
+            document.getElementById('tab-friend').classList.remove('active');
             logRiya.style.display = '';
-            logOwen.style.display = 'none';
+            logFriend.style.display = 'none';
             document.getElementById('input').value = '';
             render();
         };
-        document.getElementById('tab-owen').onclick = () => {
-            bot = 'owen';
-            document.getElementById('tab-owen').classList.add('active');
+        document.getElementById('tab-friend').onclick = () => {
+            bot = 'friend';
+            document.getElementById('tab-friend').classList.add('active');
             document.getElementById('tab-riya').classList.remove('active');
-            logOwen.style.display = '';
+            logFriend.style.display = '';
             logRiya.style.display = 'none';
             document.getElementById('input').value = '';
             render();
@@ -687,7 +687,7 @@
                 }
 
                 // Create a streaming message entry
-                const botName = (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen'));
+                const botName = (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.friendName || 'FRIEND'));
                 const streamingMessage = { role: 'bot', text: '', name: botName, streaming: true };
                 msgs[bot].push(streamingMessage);
                 render();
@@ -732,7 +732,7 @@
             } catch (e) {
                 // Remove the streaming message and add error message
                 msgs[bot].pop();
-                msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')) });
+                msgs[bot].push({ role: 'bot', text: 'Error: ' + e.message, name: (bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.friendName || 'FRIEND')) });
                 render();
             } finally {
                 // Re-enable send button
@@ -827,7 +827,7 @@
 
         // Clear chat functionality
         document.getElementById('clearChat').onclick = async () => {
-            if (confirm(`Clear ${bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.owenName || 'Owen')}-bot chat?`)) {
+            if (confirm(`Clear ${bot === 'riya' ? (cfg.riyaName || 'Riya') : (cfg.friendName || 'FRIEND')}-bot chat?`)) {
                 try {
                     // Clear frontend messages
                     msgs[bot] = [];
